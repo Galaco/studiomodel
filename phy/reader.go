@@ -28,14 +28,12 @@ func (reader *Reader) Read() (*Phy, error) {
 
 	//bodyparts
 	offset += int32(unsafe.Sizeof(header))
-	compacts,legacys := reader.readSolids(offset, header.SolidCount)
-
-
+	compacts, legacys := reader.readSolids(offset, header.SolidCount)
 
 	return &Phy{
-		Header: header,
+		Header:          header,
 		CompactSurfaces: compacts,
-		LegacySurfaces: legacys,
+		LegacySurfaces:  legacys,
 	}, nil
 }
 
@@ -58,14 +56,14 @@ func (reader *Reader) readSolids(offset int32, num int32) ([]compactSurfaceHeade
 
 	for i := int32(0); i < num; i++ {
 		//compact
-		binary.Read(bytes.NewBuffer(reader.buf[offset:offset + compactSize]), binary.LittleEndian, &compacts[i])
+		binary.Read(bytes.NewBuffer(reader.buf[offset:offset+compactSize]), binary.LittleEndian, &compacts[i])
 		offset += compactSize
 		//legacy
-		binary.Read(bytes.NewBuffer(reader.buf[offset:offset + legacySize]), binary.LittleEndian, &legacys[i])
+		binary.Read(bytes.NewBuffer(reader.buf[offset:offset+legacySize]), binary.LittleEndian, &legacys[i])
 		offset += legacySize
 	}
 
-	return compacts,legacys
+	return compacts, legacys
 }
 
 // Read stream to []byte buffer

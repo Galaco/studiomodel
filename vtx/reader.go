@@ -34,62 +34,58 @@ func (reader *Reader) Read() (*Vtx, error) {
 	//models
 	models := make([]modelHeader, 0)
 	for _, part := range bodyParts {
-		models = append(models, reader.readModels(offset + part.ModelOffset, part.NumModels)...)
+		models = append(models, reader.readModels(offset+part.ModelOffset, part.NumModels)...)
 	}
-	offset += int32(bodyParts[len(bodyParts) - 1].ModelOffset)
+	offset += int32(bodyParts[len(bodyParts)-1].ModelOffset)
 
 	//modellods
 	modelLods := make([]modelLODHeader, 0)
 	for _, model := range models {
-		modelLods = append(modelLods, reader.readModelLODs(offset + model.LODOffset, model.NumLODs)...)
+		modelLods = append(modelLods, reader.readModelLODs(offset+model.LODOffset, model.NumLODs)...)
 	}
-	offset += int32(models[len(models) - 1].LODOffset)
+	offset += int32(models[len(models)-1].LODOffset)
 
 	//meshes
 	meshes := make([]meshHeader, 0)
 	for _, modelLod := range modelLods {
-		meshes = append(meshes, reader.readMeshes(offset + modelLod.MeshOffset, modelLod.NumMeshes)...)
+		meshes = append(meshes, reader.readMeshes(offset+modelLod.MeshOffset, modelLod.NumMeshes)...)
 	}
-	offset += int32(modelLods[len(modelLods) - 1].MeshOffset)
+	offset += int32(modelLods[len(modelLods)-1].MeshOffset)
 
 	//stripgroups
 	stripGroups := make([]stripGroupHeader, 0)
 	for _, mesh := range meshes {
-		stripGroups = append(stripGroups, reader.readStripGroups(offset + mesh.StripGroupHeaderOffset, mesh.NumStripGroups)...)
+		stripGroups = append(stripGroups, reader.readStripGroups(offset+mesh.StripGroupHeaderOffset, mesh.NumStripGroups)...)
 	}
-	offset += int32(meshes[len(meshes) - 1].StripGroupHeaderOffset)
+	offset += int32(meshes[len(meshes)-1].StripGroupHeaderOffset)
 
 	//indices
 	indices := make([]uint16, 0)
 	for _, stripGroup := range stripGroups {
-		indices = append(indices, reader.readIndices(offset + stripGroup.IndexOffset, stripGroup.NumIndices)...)
+		indices = append(indices, reader.readIndices(offset+stripGroup.IndexOffset, stripGroup.NumIndices)...)
 	}
-	offset += int32(stripGroups[len(stripGroups) - 1].IndexOffset)
+	offset += int32(stripGroups[len(stripGroups)-1].IndexOffset)
 
 	//vertices
 	vertices := make([]float32, 0)
 	for _, stripGroup := range stripGroups {
-		vertices = append(vertices, reader.readVertices(offset + stripGroup.VertOffset, stripGroup.NumVerts)...)
+		vertices = append(vertices, reader.readVertices(offset+stripGroup.VertOffset, stripGroup.NumVerts)...)
 	}
-	offset += int32(stripGroups[len(stripGroups) - 1].VertOffset)
+	offset += int32(stripGroups[len(stripGroups)-1].VertOffset)
 
 	//strips
 	strips := make([]stripHeader, 0)
 	for _, stripGroup := range stripGroups {
-		strips = append(strips, reader.readStrips(offset + stripGroup.StripOffset, stripGroup.NumStrips)...)
+		strips = append(strips, reader.readStrips(offset+stripGroup.StripOffset, stripGroup.NumStrips)...)
 	}
-	offset += int32(stripGroups[len(stripGroups) - 1].StripOffset)
-
-
+	offset += int32(stripGroups[len(stripGroups)-1].StripOffset)
 
 	//vertexes
 
-
-
 	return &Vtx{
-		Header: header,
+		Header:    header,
 		BodyParts: bodyParts,
-		Models: models,
+		Models:    models,
 	}, nil
 }
 

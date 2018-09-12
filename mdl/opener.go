@@ -2,7 +2,7 @@ package mdl
 
 import "io"
 
-func ReadFromStream(stream io.Reader) (*Mdl, error){
+func ReadFromStream(stream io.Reader) (*Mdl, error) {
 	reader := Reader{
 		stream: stream,
 	}
