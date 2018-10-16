@@ -51,7 +51,7 @@ type meshHeader struct {
 	StripGroupHeaderOffset int32
 
 	Flags uint8
-	_     [3]byte
+	//_     [3]byte
 }
 
 const StripGroupIsFlexed = 0x01
@@ -70,7 +70,7 @@ type stripGroupHeader struct {
 	StripOffset int32
 
 	Flags uint8
-	_     [3]byte
+	//_     [3]byte
 }
 
 type stripHeader struct {
@@ -83,7 +83,7 @@ type stripHeader struct {
 	NumBones int16
 
 	Flags uint8
-	_     byte
+	//_     byte
 
 	NumBoneStateChanges   int32
 	BoneStateChangeOffset int32
