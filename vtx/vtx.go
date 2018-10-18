@@ -1,16 +1,29 @@
 package vtx
 
 type Vtx struct {
-	Header      header
-	BodyParts   []bodyPartHeader
-	Models      []modelHeader
-	ModelLODs   []modelLODHeader
-	Meshes      []meshHeader
-	StripGroups []stripGroupHeader
-	Indices     []uint16
-	Vertices    []float32
-	Strips      []stripHeader
-	VertexList  []vertex
+	BodyParts []BodyPart
+}
+
+type BodyPart struct {
+	Models []Model
+}
+
+type Model struct {
+	LODS []ModelLOD
+}
+
+type ModelLOD struct {
+	Meshes []Mesh
+}
+
+type Mesh struct {
+	StripGroups []StripGroup
+}
+
+type StripGroup struct {
+	Indices  []uint16
+	Vertexes []Vertex
+	Strips   []Strip
 }
 
 type header struct {
@@ -51,7 +64,7 @@ type meshHeader struct {
 	StripGroupHeaderOffset int32
 
 	Flags uint8
-	_     [3]byte
+	//_     [3]byte
 }
 
 const StripGroupIsFlexed = 0x01
@@ -70,10 +83,10 @@ type stripGroupHeader struct {
 	StripOffset int32
 
 	Flags uint8
-	_     [3]byte
+	//_     [3]byte
 }
 
-type stripHeader struct {
+type Strip struct {
 	NumIndices  int32
 	IndexOffset int32
 
@@ -83,13 +96,13 @@ type stripHeader struct {
 	NumBones int16
 
 	Flags uint8
-	_     byte
+	//_     byte
 
 	NumBoneStateChanges   int32
 	BoneStateChangeOffset int32
 }
 
-type vertex struct {
+type Vertex struct {
 	BoneWeightIndex [3]uint8
 	NumBones        uint8
 

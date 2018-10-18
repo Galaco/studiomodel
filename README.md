@@ -9,7 +9,8 @@ the filesystem structure (theoretically different StudioModel components could b
 in different folders)
 
 
-##### Notice: this is very incomplete. mdl and vvd readers are stable; tested against CS:S and CS:GO. vtx reader is unstable, and very tempermental.
+##### Notice: this is very incomplete. vvd readers is stable; tested against CS:S and CS:GO. vtx reader is reliable,
+only for single LOD models. mdl loader is currently imcomplete
 
 
 
