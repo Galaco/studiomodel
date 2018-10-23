@@ -2,9 +2,10 @@ package mdl
 
 import "github.com/go-gl/mathgl/mgl32"
 
-type studiohdr struct {
+type Studiohdr struct {
 	Id         int32
 	Version    int32
+	Checksum   int32
 	Name       [64]byte // 64 char exactly, null byte padded
 	DataLength int32
 
@@ -130,5 +131,14 @@ type studiohdr struct {
 }
 
 type Mdl struct {
-	header studiohdr
+	Header Studiohdr
+	Bones []Bone
+	BoneControllers []BoneController
+	HitboxSet []HitboxSet
+	AnimDescs []AnimDesc
+	SequenceDescs []SequenceDesc
+	Textures []Texture
+	TextureNames []string //mapped to Textures above.
+	TextureDirs []string
+	// Some skin stuff here
 }
