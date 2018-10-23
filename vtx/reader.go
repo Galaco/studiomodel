@@ -29,86 +29,105 @@ func (reader *Reader) Read() (*Vtx, error) {
 
 	out := Vtx{}
 
-	s := seeker{
+	stream := seeker{
 		buf:     &reader.buf,
-		Current: 0,
+		Position: 0,
 		Begin:   0,
 	}
 
-	s.Seek(header.BodyPartOffset, s.Begin)
-	func(stream *seeker) {
-		start := stream.Current
+	stream.Seek(header.BodyPartOffset, stream.Begin)
+	func() {
+		size := sizeOf(&bodyPartHeader{})
+		start := stream.Position
 
 		bodyParts, e := reader.readBodyParts(start, header.NumBodyParts)
 		err = e
 
+		//bodyparts
 		for i, bodyPart := range bodyParts {
 			bodyPartOut := BodyPart{}
-			stream.Seek(start+(int32(i)*sizeOf(&bodyPart))+bodyPart.ModelOffset, stream.Begin)
-			func(stream *seeker) {
-				start := stream.Current
+			stream.Seek(start + (int32(i) * size), stream.Begin)
+
+			stream.Seek(bodyPart.ModelOffset, stream.Position)
+			//callback
+			func() {
+				start := stream.Position
+				size := sizeOf(&modelHeader{})
 
 				models, e := reader.readModels(start, bodyPart.NumModels)
 				err = e
 				for j, model := range models {
 					modelOut := Model{}
-					stream.Seek(start+(int32(j)*sizeOf(&model))+model.LODOffset, stream.Begin)
-					//modelLODS
-					func(stream *seeker) {
-						start := stream.Current
+					stream.Seek(start + (int32(j) * size), stream.Begin)
+
+					stream.Seek(model.LODOffset, stream.Position)
+					//callback
+					func() {
+						start := stream.Position
+						size := sizeOf(&modelLODHeader{})
 
 						modelLods, e := reader.readModelLODs(start, model.NumLODs)
 						err = e
 						for k, modelLod := range modelLods {
 							modelLODOut := ModelLOD{}
-							stream.Seek(start+(int32(k)*sizeOf(&modelLod))+modelLod.MeshOffset, stream.Begin)
-							// Meshes
-							func(stream *seeker) {
-								start := stream.Current
+							stream.Seek(start + (int32(k) * size), stream.Begin)
+
+							stream.Seek(modelLod.MeshOffset, stream.Position)
+							//callback
+							func() {
+								start := stream.Position
+								size := int32(9)//sizeOf(&meshHeader{}) //vtx ignores trailing byte 4-byte alignment
 
 								meshes, e := reader.readMeshes(start, modelLod.NumMeshes)
 								err = e
 								for l, mesh := range meshes {
 									meshOut := Mesh{}
-									stream.Seek(start+(int32(l)*sizeOf(&mesh))+mesh.StripGroupHeaderOffset, stream.Begin)
-									// StripGroups
-									func(stream *seeker) {
-										start := stream.Current
+									stream.Seek(start + (int32(l) * size), stream.Begin)
+
+									stream.Seek(mesh.StripGroupHeaderOffset, stream.Position)
+									//callback
+									func() {
+										start := stream.Position
+										size := int32(25)//sizeOf(&stripGroupHeader{}) //vtx ignores trailing byte 4-byte alignment
 
 										stripGroups, e := reader.readStripGroups(start, mesh.NumStripGroups)
 										err = e
 										for m, stripGroup := range stripGroups {
 											stripGroupOut := StripGroup{}
-											stream.Seek(start+(int32(m)*sizeOf(&stripGroup)), stream.Begin)
+											stream.Seek(start + (int32(m) * size), stream.Begin)
 
-											// Verts,indices,strips
-											func(stream *seeker) {
-												start := stream.Current
+											//callback
+											func() {
+												start := stream.Position
+												size := sizeOf(&Strip{})
 
-												stripGroupOut.Vertexes, e = reader.readVertices(start+stripGroup.VertOffset, stripGroup.NumVerts)
-
+												stripGroupOut.Vertexes, e = reader.readVertices(start + stripGroup.VertOffset, stripGroup.NumVerts)
 												err = e
-												stripGroupOut.Indices, e = reader.readIndices(start+stripGroup.IndexOffset, stripGroup.NumIndices)
+												stripGroupOut.Indices, e = reader.readIndices(start + stripGroup.IndexOffset, stripGroup.NumIndices)
+												err = e
+												stripGroupOut.Strips, e = reader.readStrips(start + stripGroup.StripOffset, stripGroup.NumStrips)
+												err = e
 
-												err = e
-												stripGroupOut.Strips, e = reader.readStrips(start+stripGroup.StripOffset, stripGroup.NumStrips)
-												err = e
-											}(&s)
+
+												for n,_ := range stripGroupOut.Strips {
+													stream.Seek(start + (int32(n) * size), stream.Begin)
+												}
+											}()
 											meshOut.StripGroups = append(meshOut.StripGroups, stripGroupOut)
 										}
-									}(&s)
+									}()
 									modelLODOut.Meshes = append(modelLODOut.Meshes, meshOut)
 								}
-							}(&s)
+							}()
 							modelOut.LODS = append(modelOut.LODS, modelLODOut)
 						}
-					}(&s)
+					}()
 					bodyPartOut.Models = append(bodyPartOut.Models, modelOut)
 				}
-			}(&s)
+			}()
 			out.BodyParts = append(out.BodyParts, bodyPartOut)
 		}
-	}(&s)
+	}()
 
 	if err != nil {
 		return nil, err
@@ -128,74 +147,73 @@ func (reader *Reader) readHeader() (header, error) {
 }
 
 func (reader *Reader) readBodyParts(offset int32, num int32) ([]bodyPartHeader, error) {
-	ret := make([]bodyPartHeader, num)
 	if !isPropertyValid(offset, num, len(reader.buf)) {
-		return ret, errors.New("body part data out of bounds")
+		return make([]bodyPartHeader, 0), errors.New("body part data out of bounds")
 	}
-
+	ret := make([]bodyPartHeader, num)
 	binary.Read(bytes.NewBuffer(reader.buf[offset:]), binary.LittleEndian, &ret)
 	return ret, nil
 }
 
 func (reader *Reader) readModels(offset int32, num int32) ([]modelHeader, error) {
-	ret := make([]modelHeader, num)
 	if !isPropertyValid(offset, num, len(reader.buf)) {
-		return ret, errors.New("model data out of bounds")
+		return make([]modelHeader, 0), errors.New("model data out of bounds")
 	}
+	ret := make([]modelHeader, num)
 	binary.Read(bytes.NewBuffer(reader.buf[offset:]), binary.LittleEndian, &ret)
 	return ret, nil
 }
 
 func (reader *Reader) readModelLODs(offset int32, num int32) ([]modelLODHeader, error) {
-	ret := make([]modelLODHeader, num)
 	if !isPropertyValid(offset, num, len(reader.buf)) {
-		return ret, errors.New("model lod data out of bounds")
+		return make([]modelLODHeader, 0), errors.New("model lod data out of bounds")
 	}
+	ret := make([]modelLODHeader, num)
 	binary.Read(bytes.NewBuffer(reader.buf[offset:]), binary.LittleEndian, &ret)
 	return ret, nil
 }
 
 func (reader *Reader) readMeshes(offset int32, num int32) ([]meshHeader, error) {
-	ret := make([]meshHeader, num)
 	if !isPropertyValid(offset, num, len(reader.buf)) {
-		return ret, errors.New("mesh data out of bounds")
+		return make([]meshHeader, 0), errors.New("mesh data out of bounds")
 	}
+	ret := make([]meshHeader, num)
 	binary.Read(bytes.NewBuffer(reader.buf[offset:]), binary.LittleEndian, &ret)
 	return ret, nil
 }
 
 func (reader *Reader) readStripGroups(offset int32, num int32) ([]stripGroupHeader, error) {
-	ret := make([]stripGroupHeader, num)
 	if !isPropertyValid(offset, num, len(reader.buf)) {
-		return ret, errors.New("strip group data out of bounds")
+		return make([]stripGroupHeader, 0), errors.New("strip group data out of bounds")
 	}
+	ret := make([]stripGroupHeader, num)
 	binary.Read(bytes.NewBuffer(reader.buf[offset:]), binary.LittleEndian, &ret)
 	return ret, nil
 }
 
 func (reader *Reader) readIndices(offset int32, num int32) ([]uint16, error) {
-	ret := make([]uint16, num)
 	if !isPropertyValid(offset, num, len(reader.buf)) {
-		return ret, errors.New("indices data out of bounds")
+		return make([]uint16, 0), errors.New("indices data out of bounds")
 	}
+	ret := make([]uint16, num)
 	binary.Read(bytes.NewBuffer(reader.buf[offset:]), binary.LittleEndian, &ret)
 	return ret, nil
 }
 
 func (reader *Reader) readVertices(offset int32, num int32) ([]Vertex, error) {
-	ret := make([]Vertex, num)
 	if !isPropertyValid(offset, num, len(reader.buf)) {
-		return ret, errors.New("vertex data out of bounds")
+		return make([]Vertex, 0), errors.New("vertex data out of bounds")
 	}
+	ret := make([]Vertex, num)
 	binary.Read(bytes.NewBuffer(reader.buf[offset:]), binary.LittleEndian, &ret)
 	return ret, nil
 }
 
 func (reader *Reader) readStrips(offset int32, num int32) ([]Strip, error) {
-	ret := make([]Strip, num)
 	if !isPropertyValid(offset, num, len(reader.buf)) {
-		return ret, errors.New("strip data out of bounds")
+		return make([]Strip, 0), errors.New("strip data out of bounds")
 	}
+	ret := make([]Strip, num)
 	binary.Read(bytes.NewBuffer(reader.buf[offset:]), binary.LittleEndian, &ret)
 	return ret, nil
 }
@@ -212,18 +230,18 @@ func (reader *Reader) getByteBuffer() error {
 }
 
 type seeker struct {
-	buf     *[]byte
-	Current int32
-	Begin   int32
+	buf      *[]byte
+	Position int32
+	Begin    int32
 }
 
 func (s *seeker) Seek(offset int32, start int32) {
-	s.Current = start + offset
+	s.Position = start + offset
 }
 
 func (s *seeker) Read(num int32, size int32, callback func([]byte)) {
-	s.Current += (num * size)
-	callback((*s.buf)[s.Current-(num*size) : s.Current])
+	s.Position += (num * size)
+	callback((*s.buf)[s.Position-(num*size) : s.Position])
 }
 
 func sizeOf(t interface{}) int32 {
@@ -233,7 +251,7 @@ func sizeOf(t interface{}) int32 {
 }
 
 func isPropertyValid(offset int32, num int32, bufferSize int) bool {
-	if int64(int64(offset)*int64(num)) > int64(bufferSize) {
+	if num < 1 || offset < 1 {
 		return false
 	}
 	return true

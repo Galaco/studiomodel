@@ -64,7 +64,6 @@ type meshHeader struct {
 	StripGroupHeaderOffset int32
 
 	Flags uint8
-	//_     [3]byte
 }
 
 const StripGroupIsFlexed = 0x01
