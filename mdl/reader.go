@@ -29,27 +29,48 @@ func (reader *Reader) Read() (*Mdl, error) {
 
 	// Read all properties
 	bones := make([]Bone, header.BoneCount)
-	binary.Read(bytes.NewBuffer(reader.buf[header.BoneOffset:header.BoneOffset+int32(int(unsafe.Sizeof(Bone{}))*len(bones))]), binary.LittleEndian, &bones)
+	err = binary.Read(bytes.NewBuffer(reader.buf[header.BoneOffset:header.BoneOffset+int32(int(unsafe.Sizeof(Bone{}))*len(bones))]), binary.LittleEndian, &bones)
+	if err != nil {
+		return nil, err
+	}
 
 	boneControllers := make([]BoneController, header.BoneControllerCount)
-	binary.Read(bytes.NewBuffer(reader.buf[header.BoneControllerOffset:header.BoneControllerOffset+int32(int(unsafe.Sizeof(BoneController{}))*len(boneControllers))]), binary.LittleEndian, &boneControllers)
+	err = binary.Read(bytes.NewBuffer(reader.buf[header.BoneControllerOffset:header.BoneControllerOffset+int32(int(unsafe.Sizeof(BoneController{}))*len(boneControllers))]), binary.LittleEndian, &boneControllers)
+	if err != nil {
+		return nil, err
+	}
 
 	hitboxSets := make([]HitboxSet, header.HitboxCount)
-	binary.Read(bytes.NewBuffer(reader.buf[header.HitboxOffset:header.HitboxOffset+int32(int(unsafe.Sizeof(HitboxSet{}))*len(hitboxSets))]), binary.LittleEndian, &hitboxSets)
+	err = binary.Read(bytes.NewBuffer(reader.buf[header.HitboxOffset:header.HitboxOffset+int32(int(unsafe.Sizeof(HitboxSet{}))*len(hitboxSets))]), binary.LittleEndian, &hitboxSets)
+	if err != nil {
+		return nil, err
+	}
 
 	animDescs := make([]AnimDesc, header.LocalAnimationCount)
-	binary.Read(bytes.NewBuffer(reader.buf[header.LocalAnimationOffset:header.LocalAnimationOffset+int32(int(unsafe.Sizeof(AnimDesc{}))*len(animDescs))]), binary.LittleEndian, &animDescs)
+	err = binary.Read(bytes.NewBuffer(reader.buf[header.LocalAnimationOffset:header.LocalAnimationOffset+int32(int(unsafe.Sizeof(AnimDesc{}))*len(animDescs))]), binary.LittleEndian, &animDescs)
+	if err != nil {
+		return nil, err
+	}
 
 	sequenceDescs := make([]SequenceDesc, header.LocalSequenceCount)
-	binary.Read(bytes.NewBuffer(reader.buf[header.LocalSequenceOffset:header.LocalSequenceOffset+int32(int(unsafe.Sizeof(SequenceDesc{}))*len(sequenceDescs))]), binary.LittleEndian, &sequenceDescs)
+	err = binary.Read(bytes.NewBuffer(reader.buf[header.LocalSequenceOffset:header.LocalSequenceOffset+int32(int(unsafe.Sizeof(SequenceDesc{}))*len(sequenceDescs))]), binary.LittleEndian, &sequenceDescs)
+	if err != nil {
+		return nil, err
+	}
 
 	textures := make([]Texture, header.TextureCount)
-	binary.Read(bytes.NewBuffer(reader.buf[header.TextureOffset:header.TextureOffset+int32(int(unsafe.Sizeof(Texture{}))*len(textures))]), binary.LittleEndian, &textures)
+	err = binary.Read(bytes.NewBuffer(reader.buf[header.TextureOffset:header.TextureOffset+int32(int(unsafe.Sizeof(Texture{}))*len(textures))]), binary.LittleEndian, &textures)
+	if err != nil {
+		return nil, err
+	}
 
 	textureNames := make([]string, len(textures))
 	for idx, tex := range textures {
 		s := make([]byte, 255)
-		binary.Read(bytes.NewBuffer(reader.buf[header.TextureOffset+tex.NameIndex:header.TextureOffset+tex.NameIndex+255]), binary.LittleEndian, &s)
+		err = binary.Read(bytes.NewBuffer(reader.buf[header.TextureOffset+tex.NameIndex:header.TextureOffset+tex.NameIndex+255]), binary.LittleEndian, &s)
+		if err != nil {
+			return nil, err
+		}
 		name := strings.Split(string(s), "\x00")
 
 		for j := 0; j < len(textureNames); j++ {
@@ -63,12 +84,18 @@ func (reader *Reader) Read() (*Mdl, error) {
 	}
 
 	textureDirOffsets := make([]int32, header.TextureDirCount)
-	binary.Read(bytes.NewBuffer(reader.buf[header.TextureDirOffset:header.TextureDirOffset+int32(int(unsafe.Sizeof(int32(0)))*len(textureDirOffsets))]), binary.LittleEndian, &textureDirOffsets)
+	err = binary.Read(bytes.NewBuffer(reader.buf[header.TextureDirOffset:header.TextureDirOffset+int32(int(unsafe.Sizeof(int32(0)))*len(textureDirOffsets))]), binary.LittleEndian, &textureDirOffsets)
+	if err != nil {
+		return nil, err
+	}
 
 	textureDirs := make([]string, header.TextureDirCount)
 	for i, offset := range textureDirOffsets {
 		s := make([]byte, 255)
-		binary.Read(bytes.NewBuffer(reader.buf[offset:offset+255]), binary.LittleEndian, &s)
+		err = binary.Read(bytes.NewBuffer(reader.buf[offset:offset+255]), binary.LittleEndian, &s)
+		if err != nil {
+			return nil, err
+		}
 		paths := strings.Split(string(s), "\x00")
 		textureDirs[i] = paths[0]
 	}

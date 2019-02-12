@@ -21,19 +21,28 @@ func (reader *Reader) Read() (*Vvd, error) {
 
 	offset := 0
 	// Read header
-	header, offset, err := reader.readHeader(offset)
+	header, _, err := reader.readHeader(offset)
 	if err != nil {
 		return nil, err
 	}
 
 	// Read fixups
-	fixups, offset := reader.readFixups(int(header.FixupTableStart), int(header.NumFixups))
+	fixups, _, err := reader.readFixups(int(header.FixupTableStart), int(header.NumFixups))
+	if err != nil {
+		return nil, err
+	}
 
 	//Read vertices
-	vertices, offset := reader.readVertices(int(header.VertexDataStart), &header)
+	vertices, _, err := reader.readVertices(int(header.VertexDataStart), &header)
+	if err != nil {
+		return nil, err
+	}
 
 	//Read tangents
-	tangents, offset := reader.readTangents(int(header.TangentDataStart), &header)
+	tangents, _, err := reader.readTangents(int(header.TangentDataStart), &header)
+	if err != nil {
+		return nil, err
+	}
 
 	return &Vvd{
 		Header:   header,
@@ -53,18 +62,21 @@ func (reader *Reader) readHeader(offset int) (header, int, error) {
 	return header, int(headerSize), err
 }
 
-func (reader *Reader) readFixups(offset int, numFixups int) ([]fixup, int) {
+func (reader *Reader) readFixups(offset int, numFixups int) ([]fixup, int, error) {
 	fixupSize := int(unsafe.Sizeof(fixup{}))
 	fixups := make([]fixup, numFixups)
 	if numFixups > 0 {
-		binary.Read(bytes.NewBuffer(reader.buf[offset:offset+(fixupSize*numFixups)]), binary.LittleEndian, &fixups)
+		err := binary.Read(bytes.NewBuffer(reader.buf[offset:offset+(fixupSize*numFixups)]), binary.LittleEndian, &fixups)
+		if err != nil {
+			return fixups, 0, err
+		}
 	}
 
-	return fixups, offset + (fixupSize * numFixups)
+	return fixups, offset + (fixupSize * numFixups), nil
 }
 
 // read vertex data
-func (reader *Reader) readVertices(offset int, header *header) ([]vertex, int) {
+func (reader *Reader) readVertices(offset int, header *header) ([]vertex, int, error) {
 	vertexSize := int(unsafe.Sizeof(vertex{}))
 	// Compute number of vertices to read
 	numVertices := 0
@@ -73,14 +85,14 @@ func (reader *Reader) readVertices(offset int, header *header) ([]vertex, int) {
 	}
 	numVertices = int(header.NumLODVertexes[0])
 	vertexes := make([]vertex, numVertices)
-	binary.Read(bytes.NewBuffer(reader.buf[offset:offset+(vertexSize*numVertices)]), binary.LittleEndian, &vertexes)
+	err := binary.Read(bytes.NewBuffer(reader.buf[offset:offset+(vertexSize*numVertices)]), binary.LittleEndian, &vertexes)
 
-	return vertexes, offset + (vertexSize * numVertices)
+	return vertexes, offset + (vertexSize * numVertices), err
 }
 
 // read tangent data
 // NOTE: There is 1 tangent for every vertex
-func (reader *Reader) readTangents(offset int, header *header) ([]mgl32.Vec4, int) {
+func (reader *Reader) readTangents(offset int, header *header) ([]mgl32.Vec4, int, error) {
 	tangentSize := int(unsafe.Sizeof(mgl32.Vec4{}))
 	// Compute number of tangents to read
 	numTangents := 0
@@ -89,9 +101,9 @@ func (reader *Reader) readTangents(offset int, header *header) ([]mgl32.Vec4, in
 	}
 	numTangents = int(header.NumLODVertexes[0])
 	tangents := make([]mgl32.Vec4, tangentSize)
-	binary.Read(bytes.NewBuffer(reader.buf[offset:offset+(tangentSize*numTangents)]), binary.LittleEndian, &tangents)
+	err := binary.Read(bytes.NewBuffer(reader.buf[offset:offset+(tangentSize*numTangents)]), binary.LittleEndian, &tangents)
 
-	return tangents, offset + (tangentSize * numTangents)
+	return tangents, offset + (tangentSize * numTangents), err
 }
 
 // Read stream to []byte buffer

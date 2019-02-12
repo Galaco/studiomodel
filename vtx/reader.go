@@ -149,7 +149,10 @@ func (reader *Reader) readBodyParts(offset int32, num int32) ([]bodyPartHeader, 
 		return make([]bodyPartHeader, 0), errors.New("body part data out of bounds")
 	}
 	ret := make([]bodyPartHeader, num)
-	binary.Read(bytes.NewBuffer(reader.buf[offset:]), binary.LittleEndian, &ret)
+	err := binary.Read(bytes.NewBuffer(reader.buf[offset:]), binary.LittleEndian, &ret)
+	if err != nil {
+		return nil, err
+	}
 	return ret, nil
 }
 
@@ -158,7 +161,10 @@ func (reader *Reader) readModels(offset int32, num int32) ([]modelHeader, error)
 		return make([]modelHeader, 0), errors.New("model data out of bounds")
 	}
 	ret := make([]modelHeader, num)
-	binary.Read(bytes.NewBuffer(reader.buf[offset:]), binary.LittleEndian, &ret)
+	err := binary.Read(bytes.NewBuffer(reader.buf[offset:]), binary.LittleEndian, &ret)
+	if err != nil {
+		return nil, err
+	}
 	return ret, nil
 }
 
@@ -167,7 +173,10 @@ func (reader *Reader) readModelLODs(offset int32, num int32) ([]modelLODHeader, 
 		return make([]modelLODHeader, 0), errors.New("model lod data out of bounds")
 	}
 	ret := make([]modelLODHeader, num)
-	binary.Read(bytes.NewBuffer(reader.buf[offset:]), binary.LittleEndian, &ret)
+	err := binary.Read(bytes.NewBuffer(reader.buf[offset:]), binary.LittleEndian, &ret)
+	if err != nil {
+		return nil, err
+	}
 	return ret, nil
 }
 
@@ -176,7 +185,10 @@ func (reader *Reader) readMeshes(offset int32, num int32) ([]meshHeader, error) 
 		return make([]meshHeader, 0), errors.New("mesh data out of bounds")
 	}
 	ret := make([]meshHeader, num)
-	binary.Read(bytes.NewBuffer(reader.buf[offset:]), binary.LittleEndian, &ret)
+	err := binary.Read(bytes.NewBuffer(reader.buf[offset:]), binary.LittleEndian, &ret)
+	if err != nil {
+		return nil, err
+	}
 	return ret, nil
 }
 
@@ -185,7 +197,10 @@ func (reader *Reader) readStripGroups(offset int32, num int32) ([]stripGroupHead
 		return make([]stripGroupHeader, 0), errors.New("strip group data out of bounds")
 	}
 	ret := make([]stripGroupHeader, num)
-	binary.Read(bytes.NewBuffer(reader.buf[offset:]), binary.LittleEndian, &ret)
+	err := binary.Read(bytes.NewBuffer(reader.buf[offset:]), binary.LittleEndian, &ret)
+	if err != nil {
+		return nil, err
+	}
 	return ret, nil
 }
 
@@ -194,7 +209,10 @@ func (reader *Reader) readIndices(offset int32, num int32) ([]uint16, error) {
 		return make([]uint16, 0), errors.New("indices data out of bounds")
 	}
 	ret := make([]uint16, num)
-	binary.Read(bytes.NewBuffer(reader.buf[offset:]), binary.LittleEndian, &ret)
+	err := binary.Read(bytes.NewBuffer(reader.buf[offset:]), binary.LittleEndian, &ret)
+	if err != nil {
+		return nil, err
+	}
 	return ret, nil
 }
 
@@ -203,7 +221,10 @@ func (reader *Reader) readVertices(offset int32, num int32) ([]Vertex, error) {
 		return make([]Vertex, 0), errors.New("vertex data out of bounds")
 	}
 	ret := make([]Vertex, num)
-	binary.Read(bytes.NewBuffer(reader.buf[offset:]), binary.LittleEndian, &ret)
+	err := binary.Read(bytes.NewBuffer(reader.buf[offset:]), binary.LittleEndian, &ret)
+	if err != nil {
+		return nil, err
+	}
 	return ret, nil
 }
 
@@ -212,7 +233,10 @@ func (reader *Reader) readStrips(offset int32, num int32) ([]Strip, error) {
 		return make([]Strip, 0), errors.New("strip data out of bounds")
 	}
 	ret := make([]Strip, num)
-	binary.Read(bytes.NewBuffer(reader.buf[offset:]), binary.LittleEndian, &ret)
+	err := binary.Read(bytes.NewBuffer(reader.buf[offset:]), binary.LittleEndian, &ret)
+	if err != nil {
+		return nil, err
+	}
 	return ret, nil
 }
 
@@ -238,7 +262,7 @@ func (s *seeker) Seek(offset int32, start int32) {
 }
 
 func (s *seeker) Read(num int32, size int32, callback func([]byte)) {
-	s.Position += (num * size)
+	s.Position += num * size
 	callback((*s.buf)[s.Position-(num*size) : s.Position])
 }
 
