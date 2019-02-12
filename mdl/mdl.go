@@ -131,14 +131,14 @@ type Studiohdr struct {
 }
 
 type Mdl struct {
-	Header Studiohdr
-	Bones []Bone
+	Header          Studiohdr
+	Bones           []Bone
 	BoneControllers []BoneController
-	HitboxSet []HitboxSet
-	AnimDescs []AnimDesc
-	SequenceDescs []SequenceDesc
-	Textures []Texture
-	TextureNames []string //mapped to Textures above.
-	TextureDirs []string
+	HitboxSet       []HitboxSet
+	AnimDescs       []AnimDesc
+	SequenceDescs   []SequenceDesc
+	Textures        []Texture
+	TextureNames    []string //mapped to Textures above.
+	TextureDirs     []string
 	// Some skin stuff here
 }

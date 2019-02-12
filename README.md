@@ -1,3 +1,7 @@
+[![GoDoc](https://godoc.org/github.com/Galaco/StudioModel?status.svg)](https://godoc.org/github.com/Galaco/StudioModel)
+[![Go report card](https://goreportcard.com/badge/github.com/galaco/studiomodel)](https://goreportcard.com/badge/github.com/galaco/studiomodel)
+[![Build Status](https://travis-ci.com/Galaco/StudioModel.svg?branch=master)](https://travis-ci.com/Galaco/StudioModel)
+
 # StudioModel
 Golang library for loading Valve StudioModel formats (.mdl, .vtx, .vvd)
 

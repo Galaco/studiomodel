@@ -15,8 +15,7 @@ type Reader struct {
 }
 
 func (reader *Reader) Read() (*Vtx, error) {
-	var err error
-	err = reader.getByteBuffer()
+	err := reader.getByteBuffer()
 	if err != nil {
 		return nil, err
 	}
@@ -30,9 +29,9 @@ func (reader *Reader) Read() (*Vtx, error) {
 	out := Vtx{}
 
 	stream := seeker{
-		buf:     &reader.buf,
+		buf:      &reader.buf,
 		Position: 0,
-		Begin:   0,
+		Begin:    0,
 	}
 
 	stream.Seek(header.BodyPartOffset, stream.Begin)
@@ -46,7 +45,7 @@ func (reader *Reader) Read() (*Vtx, error) {
 		//bodyparts
 		for i, bodyPart := range bodyParts {
 			bodyPartOut := BodyPart{}
-			stream.Seek(start + (int32(i) * size), stream.Begin)
+			stream.Seek(start+(int32(i)*size), stream.Begin)
 
 			stream.Seek(bodyPart.ModelOffset, stream.Position)
 			//callback
@@ -58,7 +57,7 @@ func (reader *Reader) Read() (*Vtx, error) {
 				err = e
 				for j, model := range models {
 					modelOut := Model{}
-					stream.Seek(start + (int32(j) * size), stream.Begin)
+					stream.Seek(start+(int32(j)*size), stream.Begin)
 
 					stream.Seek(model.LODOffset, stream.Position)
 					//callback
@@ -70,47 +69,46 @@ func (reader *Reader) Read() (*Vtx, error) {
 						err = e
 						for k, modelLod := range modelLods {
 							modelLODOut := ModelLOD{}
-							stream.Seek(start + (int32(k) * size), stream.Begin)
+							stream.Seek(start+(int32(k)*size), stream.Begin)
 
 							stream.Seek(modelLod.MeshOffset, stream.Position)
 							//callback
 							func() {
 								start := stream.Position
-								size := int32(9)//sizeOf(&meshHeader{}) //vtx ignores trailing byte 4-byte alignment
+								size := int32(9) //sizeOf(&meshHeader{}) //vtx ignores trailing byte 4-byte alignment
 
 								meshes, e := reader.readMeshes(start, modelLod.NumMeshes)
 								err = e
 								for l, mesh := range meshes {
 									meshOut := Mesh{}
-									stream.Seek(start + (int32(l) * size), stream.Begin)
+									stream.Seek(start+(int32(l)*size), stream.Begin)
 
 									stream.Seek(mesh.StripGroupHeaderOffset, stream.Position)
 									//callback
 									func() {
 										start := stream.Position
-										size := int32(25)//sizeOf(&stripGroupHeader{}) //vtx ignores trailing byte 4-byte alignment
+										size := int32(25) //sizeOf(&stripGroupHeader{}) //vtx ignores trailing byte 4-byte alignment
 
 										stripGroups, e := reader.readStripGroups(start, mesh.NumStripGroups)
 										err = e
 										for m, stripGroup := range stripGroups {
 											stripGroupOut := StripGroup{}
-											stream.Seek(start + (int32(m) * size), stream.Begin)
+											stream.Seek(start+(int32(m)*size), stream.Begin)
 
 											//callback
 											func() {
 												start := stream.Position
-												size := sizeOf(&Strip{})
+												size := int32(15) //sizeOf(&Strip{})
 
-												stripGroupOut.Vertexes, e = reader.readVertices(start + stripGroup.VertOffset, stripGroup.NumVerts)
+												stripGroupOut.Vertexes, e = reader.readVertices(start+stripGroup.VertOffset, stripGroup.NumVerts)
 												err = e
-												stripGroupOut.Indices, e = reader.readIndices(start + stripGroup.IndexOffset, stripGroup.NumIndices)
+												stripGroupOut.Indices, e = reader.readIndices(start+stripGroup.IndexOffset, stripGroup.NumIndices)
 												err = e
-												stripGroupOut.Strips, e = reader.readStrips(start + stripGroup.StripOffset, stripGroup.NumStrips)
+												stripGroupOut.Strips, e = reader.readStrips(start+stripGroup.StripOffset, stripGroup.NumStrips)
 												err = e
 
-
-												for n,_ := range stripGroupOut.Strips {
-													stream.Seek(start + (int32(n) * size), stream.Begin)
+												for n := range stripGroupOut.Strips {
+													stream.Seek(start+(int32(n)*size), stream.Begin)
 												}
 											}()
 											meshOut.StripGroups = append(meshOut.StripGroups, stripGroupOut)
