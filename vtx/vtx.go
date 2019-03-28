@@ -1,111 +1,178 @@
 package vtx
 
+// Vtx
 type Vtx struct {
+	// BodyParts
 	BodyParts []BodyPart
 }
 
+// BodyPart
 type BodyPart struct {
+	// Models
 	Models []Model
 }
 
+// Model
 type Model struct {
+	// LODS
 	LODS []ModelLOD
 }
 
+// ModelLOD
 type ModelLOD struct {
+	// Meshes
 	Meshes []Mesh
 }
 
+// Mesh
 type Mesh struct {
+	// StripGroups
 	StripGroups []StripGroup
 }
 
+// StripGroup
 type StripGroup struct {
-	Indices  []uint16
+	// Indices
+	Indices []uint16
+	// Vertexes
 	Vertexes []Vertex
-	Strips   []Strip
+	// Strips
+	Strips []Strip
 }
 
+// header
 type header struct {
-	Version       int32
+	// Version
+	Version int32
+	// VertCacheSize
 	VertCacheSize int32
 
-	MaxBonesperStrip    uint16
+	// MaxBonesPerStrip
+	MaxBonesPerStrip uint16
+	// MaxBonesPerTriangle
 	MaxBonesPerTriangle uint16
-	MaxBonesPerVert     int32
+	// MaxBonesPerVert
+	MaxBonesPerVert int32
 
+	// CheckSum
 	CheckSum int32
-	NumLODs  int32
+	// NumLODs
+	NumLODs int32
 
+	// MaterialReplacementListOffset
 	MaterialReplacementListOffset int32
 
-	NumBodyParts   int32
+	// NumBodyParts
+	NumBodyParts int32
+	// BodyPartOffset
 	BodyPartOffset int32
 }
 
+// bodyPartHeader
 type bodyPartHeader struct {
-	NumModels   int32
+	// NumModels
+	NumModels int32
+	// ModelOffset
 	ModelOffset int32
 }
 
+// modelHeader
 type modelHeader struct {
-	NumLODs   int32
+	// NumLODs
+	NumLODs int32
+	// LODOffset
 	LODOffset int32
 }
 
+// modelLODHeader
 type modelLODHeader struct {
-	NumMeshes   int32
-	MeshOffset  int32
+	// NumMeshes
+	NumMeshes int32
+	// MeshOffset
+	MeshOffset int32
+	// SwitchPoint
 	SwitchPoint float32
 }
 
+// meshHeader
 type meshHeader struct {
-	NumStripGroups         int32
+	// NumStripGroups
+	NumStripGroups int32
+	// StripGroupHeaderOffset
 	StripGroupHeaderOffset int32
 
+	// Flags
 	Flags uint8
 }
 
-const StripGroupIsFlexed = 0x01
-const StripGroupIsHWSkinned = 0x02
-const StripGroupIsDeltaFlexed = 0x04
-const StripGroupSuppressHWMorph = 0x08
+const (
+	// StripGroupIsFlexed
+	StripGroupIsFlexed = 0x01
+	// StripGroupIsHWSkinned
+	StripGroupIsHWSkinned = 0x02
+	// StripGroupIsDeltaFlexed
+	StripGroupIsDeltaFlexed = 0x04
+	// StripGroupSuppressHWMorph
+	StripGroupSuppressHWMorph = 0x08
+)
 
+// stripGroupHeader
 type stripGroupHeader struct {
-	NumVerts   int32
+	// NumVerts
+	NumVerts int32
+	// VertOffset
 	VertOffset int32
 
-	NumIndices  int32
+	// NumIndices
+	NumIndices int32
+	// IndexOffset
 	IndexOffset int32
 
-	NumStrips   int32
+	// NumStrips
+	NumStrips int32
+	// StripOffset
 	StripOffset int32
 
+	// Flags
 	Flags uint8
 	//_     [3]byte
 }
 
+// Strip
 type Strip struct {
-	NumIndices  int32
+	// NumIndices
+	NumIndices int32
+	// IndexOffset
 	IndexOffset int32
 
-	NumVerts   int32
+	// NumVerts
+	NumVerts int32
+	// VertOffset
 	VertOffset int32
 
+	// NumBones
 	NumBones int16
 
+	// Flags
 	Flags uint8
 	//_     byte
 
-	NumBoneStateChanges   int32
+	//NumBoneStateChanges
+	NumBoneStateChanges int32
+	//BoneStateChangeOffset
 	BoneStateChangeOffset int32
 }
 
+// Vertex
 type Vertex struct {
+	// BoneWeightIndex
 	BoneWeightIndex [3]uint8
-	NumBones        uint8
+	// NumBones
+	NumBones uint8
 
+	// OriginalMeshVertexID
 	OriginalMeshVertexID uint16
 
+	// BoneID
 	BoneID [3]int8
 }

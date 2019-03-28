@@ -2,9 +2,8 @@ package phy
 
 import "io"
 
+// ReadFromStream parses a phy from a io.Reader stream.
 func ReadFromStream(stream io.Reader) (*Phy, error) {
-	reader := Reader{
-		stream: stream,
-	}
-	return reader.Read()
+	reader := NewReader()
+	return reader.Read(stream)
 }

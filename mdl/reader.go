@@ -8,18 +8,21 @@ import (
 	"unsafe"
 )
 
+// Reader is a parser for mdl files
 type Reader struct {
-	stream io.Reader
-	buf    []byte
 }
 
-func (reader *Reader) Read() (*Mdl, error) {
-	err := reader.getByteBuffer()
+// Read parses the passed stream and returns an Mdl
+func (reader *Reader) Read(stream io.Reader) (*Mdl, error) {
+	var buf []byte
+	byteBuf := bytes.Buffer{}
+	_, err := byteBuf.ReadFrom(stream)
 	if err != nil {
 		return nil, err
 	}
+	buf = byteBuf.Bytes()
 
-	header, err := reader.readHeader()
+	header, err := reader.readHeader(buf)
 	if err != nil {
 		return nil, err
 	}
@@ -29,37 +32,37 @@ func (reader *Reader) Read() (*Mdl, error) {
 
 	// Read all properties
 	bones := make([]Bone, header.BoneCount)
-	err = binary.Read(bytes.NewBuffer(reader.buf[header.BoneOffset:header.BoneOffset+int32(int(unsafe.Sizeof(Bone{}))*len(bones))]), binary.LittleEndian, &bones)
+	err = binary.Read(bytes.NewBuffer(buf[header.BoneOffset:header.BoneOffset+int32(int(unsafe.Sizeof(Bone{}))*len(bones))]), binary.LittleEndian, &bones)
 	if err != nil {
 		return nil, err
 	}
 
 	boneControllers := make([]BoneController, header.BoneControllerCount)
-	err = binary.Read(bytes.NewBuffer(reader.buf[header.BoneControllerOffset:header.BoneControllerOffset+int32(int(unsafe.Sizeof(BoneController{}))*len(boneControllers))]), binary.LittleEndian, &boneControllers)
+	err = binary.Read(bytes.NewBuffer(buf[header.BoneControllerOffset:header.BoneControllerOffset+int32(int(unsafe.Sizeof(BoneController{}))*len(boneControllers))]), binary.LittleEndian, &boneControllers)
 	if err != nil {
 		return nil, err
 	}
 
 	hitboxSets := make([]HitboxSet, header.HitboxCount)
-	err = binary.Read(bytes.NewBuffer(reader.buf[header.HitboxOffset:header.HitboxOffset+int32(int(unsafe.Sizeof(HitboxSet{}))*len(hitboxSets))]), binary.LittleEndian, &hitboxSets)
+	err = binary.Read(bytes.NewBuffer(buf[header.HitboxOffset:header.HitboxOffset+int32(int(unsafe.Sizeof(HitboxSet{}))*len(hitboxSets))]), binary.LittleEndian, &hitboxSets)
 	if err != nil {
 		return nil, err
 	}
 
 	animDescs := make([]AnimDesc, header.LocalAnimationCount)
-	err = binary.Read(bytes.NewBuffer(reader.buf[header.LocalAnimationOffset:header.LocalAnimationOffset+int32(int(unsafe.Sizeof(AnimDesc{}))*len(animDescs))]), binary.LittleEndian, &animDescs)
+	err = binary.Read(bytes.NewBuffer(buf[header.LocalAnimationOffset:header.LocalAnimationOffset+int32(int(unsafe.Sizeof(AnimDesc{}))*len(animDescs))]), binary.LittleEndian, &animDescs)
 	if err != nil {
 		return nil, err
 	}
 
 	sequenceDescs := make([]SequenceDesc, header.LocalSequenceCount)
-	err = binary.Read(bytes.NewBuffer(reader.buf[header.LocalSequenceOffset:header.LocalSequenceOffset+int32(int(unsafe.Sizeof(SequenceDesc{}))*len(sequenceDescs))]), binary.LittleEndian, &sequenceDescs)
+	err = binary.Read(bytes.NewBuffer(buf[header.LocalSequenceOffset:header.LocalSequenceOffset+int32(int(unsafe.Sizeof(SequenceDesc{}))*len(sequenceDescs))]), binary.LittleEndian, &sequenceDescs)
 	if err != nil {
 		return nil, err
 	}
 
 	textures := make([]Texture, header.TextureCount)
-	err = binary.Read(bytes.NewBuffer(reader.buf[header.TextureOffset:header.TextureOffset+int32(int(unsafe.Sizeof(Texture{}))*len(textures))]), binary.LittleEndian, &textures)
+	err = binary.Read(bytes.NewBuffer(buf[header.TextureOffset:header.TextureOffset+int32(int(unsafe.Sizeof(Texture{}))*len(textures))]), binary.LittleEndian, &textures)
 	if err != nil {
 		return nil, err
 	}
@@ -67,7 +70,7 @@ func (reader *Reader) Read() (*Mdl, error) {
 	textureNames := make([]string, len(textures))
 	for idx, tex := range textures {
 		s := make([]byte, 255)
-		err = binary.Read(bytes.NewBuffer(reader.buf[header.TextureOffset+tex.NameIndex:header.TextureOffset+tex.NameIndex+255]), binary.LittleEndian, &s)
+		err = binary.Read(bytes.NewBuffer(buf[header.TextureOffset+tex.NameIndex:header.TextureOffset+tex.NameIndex+255]), binary.LittleEndian, &s)
 		if err != nil {
 			return nil, err
 		}
@@ -84,7 +87,7 @@ func (reader *Reader) Read() (*Mdl, error) {
 	}
 
 	textureDirOffsets := make([]int32, header.TextureDirCount)
-	err = binary.Read(bytes.NewBuffer(reader.buf[header.TextureDirOffset:header.TextureDirOffset+int32(int(unsafe.Sizeof(int32(0)))*len(textureDirOffsets))]), binary.LittleEndian, &textureDirOffsets)
+	err = binary.Read(bytes.NewBuffer(buf[header.TextureDirOffset:header.TextureDirOffset+int32(int(unsafe.Sizeof(int32(0)))*len(textureDirOffsets))]), binary.LittleEndian, &textureDirOffsets)
 	if err != nil {
 		return nil, err
 	}
@@ -92,7 +95,7 @@ func (reader *Reader) Read() (*Mdl, error) {
 	textureDirs := make([]string, header.TextureDirCount)
 	for i, offset := range textureDirOffsets {
 		s := make([]byte, 255)
-		err = binary.Read(bytes.NewBuffer(reader.buf[offset:offset+255]), binary.LittleEndian, &s)
+		err = binary.Read(bytes.NewBuffer(buf[offset:offset+255]), binary.LittleEndian, &s)
 		if err != nil {
 			return nil, err
 		}
@@ -113,23 +116,17 @@ func (reader *Reader) Read() (*Mdl, error) {
 	}, nil
 }
 
-// Reads studiohdr header information
-func (reader *Reader) readHeader() (*Studiohdr, error) {
+// readHeader Reads studiohdr header information
+func (reader *Reader) readHeader(buf []byte) (*Studiohdr, error) {
 	header := Studiohdr{}
 	headerSize := unsafe.Sizeof(header)
 
-	err := binary.Read(bytes.NewBuffer(reader.buf[:headerSize]), binary.LittleEndian, &header)
+	err := binary.Read(bytes.NewBuffer(buf[:headerSize]), binary.LittleEndian, &header)
 
 	return &header, err
 }
 
-// Read stream to []byte buffer
-func (reader *Reader) getByteBuffer() error {
-	buf := bytes.Buffer{}
-	_, err := buf.ReadFrom(reader.stream)
-	if err == nil {
-		reader.buf = buf.Bytes()
-	}
-
-	return err
+// NewReader returns a new Reader.
+func NewReader() *Reader {
+	return new(Reader)
 }

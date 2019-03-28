@@ -2,9 +2,8 @@ package mdl
 
 import "io"
 
+// ReadFromStream parses an mdl from an io.Reader stream
 func ReadFromStream(stream io.Reader) (*Mdl, error) {
-	reader := Reader{
-		stream: stream,
-	}
-	return reader.Read()
+	reader := NewReader()
+	return reader.Read(stream)
 }
