@@ -1,15 +1,16 @@
-[![GoDoc](https://godoc.org/github.com/Galaco/StudioModel?status.svg)](https://godoc.org/github.com/Galaco/StudioModel)
+[![GoDoc](https://godoc.org/github.com/Galaco/studiomodel?status.svg)](https://godoc.org/github.com/Galaco/studiomodel)
 [![Go report card](https://goreportcard.com/badge/github.com/galaco/studiomodel)](https://goreportcard.com/badge/github.com/galaco/studiomodel)
-[![Build Status](https://travis-ci.com/Galaco/StudioModel.svg?branch=master)](https://travis-ci.com/Galaco/StudioModel)
+[![Build Status](https://travis-ci.com/Galaco/studiomodel.svg?branch=master)](https://travis-ci.com/Galaco/studiomodel)
+[![CircleCI](https://circleci.com/gh/Galaco/studiomodel/tree/master.svg?style=svg)](https://circleci.com/gh/Galaco/studiomodel/tree/master)
 
-# StudioModel
-Golang library for loading Valve StudioModel formats (.mdl, .vtx, .vvd)
+# studiomodel
+Golang library for loading Valve studiomodel formats (.mdl, .vtx, .vvd)
 
 Some parts of a prop are mandatory (mdl,vvd,vtx), others are not (phy). It's up to the 
-implementor to construct a StudioModel the way they want to. 
+implementor to construct a studiomodel the way they want to. 
 
 This is a collection of parsers for different formats, it has no concept of 
-the filesystem structure (theoretically different StudioModel components could be located 
+the filesystem structure (theoretically different studiomodel components could be located 
 in different folders)
 
 
@@ -20,17 +21,18 @@ only for single LOD models. mdl loader is currently imcomplete
 
 ### Usage
 ```go
+package main
 
 import (
-	studiomodel "github.com/galaco/StudioModel"
-	"github.com/galaco/StudioModel/mdl"
+	"github.com/galaco/studiomodel"
+	"github.com/galaco/studiomodel/mdl"
 	"log"
 )
 
 
 func main() {
 	// create model
-	prop := studiomodel.NewStudioModel(filePath)
+	prop := studiomodel.Newstudiomodel("models/error")
 
     // MDL
 	f,err := file.Load(filePath + ".mdl") // file.Load just returns (io.Reader,error)

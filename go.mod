@@ -1,6 +1,5 @@
-module github.com/galaco/StudioModel
+module github.com/galaco/studiomodel
 
-require (
-	github.com/go-gl/mathgl v0.0.0-20180804195959-cdf14b6b8f8a
-	golang.org/x/image v0.0.0-20190220224155-31aff87c08e9 // indirect
-)
+go 1.13
+
+require github.com/go-gl/mathgl v0.0.0-20190713194549-592312d8590a
