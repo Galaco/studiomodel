@@ -64,10 +64,13 @@ func (reader *Reader) Read() (*Mdl, error) {
 		return nil, err
 	}
 
-	textureNames := strings.SplitN(
-		string(reader.buf[header.TextureOffset+textures[0].NameIndex:]),
-		"\x00",
-		int(header.TextureCount+1))
+	textureNames := make([]string, header.TextureCount)
+	for i := range textures {
+		textureNames[i] = strings.SplitN(
+			string(reader.buf[header.TextureOffset + int32(int(unsafe.Sizeof(Texture{})) * i) + textures[i].NameIndex:]),
+			"\x00",
+			int(header.TextureCount+1))[0]
+	}
 
 	textureDirOffsets := make([]int32, header.TextureDirCount)
 	err = binary.Read(bytes.NewBuffer(reader.buf[header.TextureDirOffset:header.TextureDirOffset+int32(int(unsafe.Sizeof(int32(0)))*len(textureDirOffsets))]), binary.LittleEndian, &textureDirOffsets)
