@@ -4,11 +4,11 @@
 [![codecov](https://codecov.io/gh/Galaco/studiomodel/branch/master/graph/badge.svg)](https://codecov.io/gh/Galaco/studiomodel)
 [![CircleCI](https://circleci.com/gh/Galaco/studiomodel.svg?style=svg)](https://circleci.com/gh/Galaco/studiomodel)
 
-# StudioModel
-Golang library for loading Valve StudioModel formats (.mdl, .vtx, .vvd)
+# studiomodel
+Golang library for loading Valve studiomodel formats (.mdl, .vtx, .vvd)
 
 Some parts of a prop are mandatory (mdl,vvd,vtx), others are not (phy). It's up to the 
-implementor to construct a StudioModel the way they want to. 
+implementor to construct a studiomodel the way they want to. 
 
 This is a collection of parsers for different formats, it has no concept of 
 the filesystem structure (theoretically different StudioModel components could be located 
@@ -45,7 +45,7 @@ func main() {
 	filePath := "foo/prop" //
 	
 	// create model
-	prop := studiomodel.NewStudioModel(filePath)
+	prop := studiomodel.Newstudiomodel("models/error")
 
     // MDL
 	f,err := os.Open(filePath + ".mdl") // file.Load just returns (io.Reader,error)

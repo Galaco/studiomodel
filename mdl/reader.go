@@ -67,23 +67,12 @@ func (reader *Reader) Read(stream io.Reader) (*Mdl, error) {
 		return nil, err
 	}
 
-	textureNames := make([]string, len(textures))
-	for idx, tex := range textures {
-		s := make([]byte, 255)
-		err = binary.Read(bytes.NewBuffer(buf[header.TextureOffset+tex.NameIndex:header.TextureOffset+tex.NameIndex+255]), binary.LittleEndian, &s)
-		if err != nil {
-			return nil, err
-		}
-		name := strings.Split(string(s), "\x00")
-
-		for j := 0; j < len(textureNames); j++ {
-			textureNames[j] = name[j]
-		}
-
-		// @TODO This needs to be investigated. Apparently >1 texture entries aren't actually needed to be read..
-		if idx == 0 {
-			break
-		}
+	textureNames := make([]string, header.TextureCount)
+	for i := range textures {
+		textureNames[i] = strings.SplitN(
+			string(reader.buf[header.TextureOffset + int32(int(unsafe.Sizeof(Texture{})) * i) + textures[i].NameIndex:]),
+			"\x00",
+			int(header.TextureCount+1))[0]
 	}
 
 	textureDirOffsets := make([]int32, header.TextureDirCount)
