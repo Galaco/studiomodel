@@ -95,24 +95,41 @@ func (reader *Reader) readTriangles(buf []byte, initialOffset int) ([]triangleFa
 	vertices := make([]mgl32.Vec4, 0)
 	headerSize := int(unsafe.Sizeof(triangleFaceHeader{}))
 	triangleSize := int(unsafe.Sizeof(triangleFace{}))
-	offset := 0
+	vertexSize := int(unsafe.Sizeof(mgl32.Vec4{}))
+	offset := initialOffset
 
-	for initialOffset+offset < len(buf) {
+	startOfVertexBlock := 99999999
+
+	for offset < startOfVertexBlock {
 		// Read header
 		header := triangleFaceHeader{}
-		if err := binary.Read(bytes.NewBuffer(buf[initialOffset+offset:initialOffset+offset+headerSize]), binary.LittleEndian, &header); err != nil {
+		if err := binary.Read(bytes.NewBuffer(buf[offset:offset+headerSize]), binary.LittleEndian, &header); err != nil {
 			return nil, nil, nil, err
 		}
+		headers = append(headers, header)
+		vertexDataOffset := offset + int(header.OffsetToVertices)
+		if vertexDataOffset < startOfVertexBlock {
+			startOfVertexBlock = vertexDataOffset
+		}
+
 
 		// Read triangles referenced in header
 		headerTriangles := make([]triangleFace, header.FaceCount)
 		if err := binary.Read(
-			bytes.NewBuffer(buf[initialOffset+offset+headerSize:initialOffset+offset+headerSize+triangleSize*len(headerTriangles)]),
+			bytes.NewBuffer(buf[offset+headerSize:offset+headerSize+triangleSize*len(headerTriangles)]),
 			binary.LittleEndian,
 			&headerTriangles); err != nil {
 			return nil, nil, nil, err
 		}
 		triangles = append(triangles, headerTriangles...)
+
+		// Prepare the next offset to the next triangle
+		offset += (headerSize + (len(headerTriangles) * triangleSize))
+
+		// Discard if set
+		if header.DummyFlag & 1 > 0 {
+			continue
+		}
 
 		// calc number of Verts
 		numVerts := 0
@@ -129,18 +146,15 @@ func (reader *Reader) readTriangles(buf []byte, initialOffset int) ([]triangleFa
 		}
 
 		// read verts
-		triangleVertices := make([]mgl32.Vec4, header.FaceCount)
+		triangleVertices := make([]mgl32.Vec4, numVerts)
 		if err := binary.Read(
-			bytes.NewBuffer(buf[initialOffset+offset+int(header.OffsetToVertices):initialOffset+offset+int(header.OffsetToVertices)+triangleSize*len(headerTriangles)]),
+			bytes.NewBuffer(buf[vertexDataOffset:vertexDataOffset + (vertexSize * numVerts)]),
 			binary.LittleEndian,
-			&headerTriangles); err != nil {
+			&triangleVertices); err != nil {
 			return nil, nil, nil, err
 		}
 
 		vertices = append(vertices, triangleVertices...)
-
-		// Jump to the end of the vertex block
-		offset += int(header.OffsetToVertices) + (len(triangleVertices) * int(unsafe.Sizeof(mgl32.Vec4{})))
 	}
 
 	return headers, triangles, vertices, nil

@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
-	"github.com/galaco/StudioModel/internal"
+	"github.com/galaco/studiomodel/internal"
 	"io"
 	"unsafe"
 )

@@ -1,9 +1,8 @@
-[![GoDoc](https://godoc.org/github.com/Galaco/StudioModel?status.svg)](https://godoc.org/github.com/Galaco/StudioModel)
+[![GoDoc](https://godoc.org/github.com/Galaco/studiomodel?status.svg)](https://godoc.org/github.com/Galaco/studiomodel)
 [![Go report card](https://goreportcard.com/badge/github.com/galaco/studiomodel)](https://goreportcard.com/badge/github.com/galaco/studiomodel)
-[![GolangCI](https://golangci.com/badges/github.com/galaco/StudioModel.svg)](https://golangci.com)
-[![Build Status](https://travis-ci.com/Galaco/StudioModel.svg?branch=master)](https://travis-ci.com/Galaco/StudioModel)
-[![codecov](https://codecov.io/gh/Galaco/StudioModel/branch/master/graph/badge.svg)](https://codecov.io/gh/Galaco/StudioModel)
-[![CircleCI](https://circleci.com/gh/Galaco/StudioModel.svg?style=svg)](https://circleci.com/gh/Galaco/StudioModel)
+[![GolangCI](https://golangci.com/badges/github.com/galaco/studiomodel.svg)](https://golangci.com)\
+[![codecov](https://codecov.io/gh/Galaco/studiomodel/branch/master/graph/badge.svg)](https://codecov.io/gh/Galaco/studiomodel)
+[![CircleCI](https://circleci.com/gh/Galaco/studiomodel.svg?style=svg)](https://circleci.com/gh/Galaco/studiomodel)
 
 # StudioModel
 Golang library for loading Valve StudioModel formats (.mdl, .vtx, .vvd)
@@ -13,11 +12,17 @@ implementor to construct a StudioModel the way they want to.
 
 This is a collection of parsers for different formats, it has no concept of 
 the filesystem structure (theoretically different StudioModel components could be located 
-in different folders)
+in different folders).
+
+Tested against Counter Strike Source and Counter Strike Global Offensive
 
 
-##### Notice: this is very incomplete. vvd readers is stable; tested against CS:S and CS:GO. vtx reader is reliable,
-only for single LOD models. mdl loader is currently incomplete.
+#### Features
+
+* VVD reader is stable
+* VTX reader is usable, only for single LOD models
+* MDL reader is usable, currently incomplete (some properties not populated)
+* PHY reader is usable, string data table is not supported yet
 
 
 
@@ -26,9 +31,11 @@ only for single LOD models. mdl loader is currently incomplete.
 package main
 
 import (
-	studiomodel "github.com/galaco/StudioModel"
-	"github.com/galaco/StudioModel/mdl"
-	"github.com/galaco/StudioModel/vvd"
+	"github.com/galaco/studiomodel"
+	"github.com/galaco/studiomodel/mdl"
+	"github.com/galaco/studiomodel/phy"
+	"github.com/galaco/studiomodel/vtx"
+	"github.com/galaco/studiomodel/vvd"
 	"log"
 	"os"
 )
@@ -41,7 +48,7 @@ func main() {
 	prop := studiomodel.NewStudioModel(filePath)
 
     // MDL
-	f,err := file.Load(filePath + ".mdl") // file.Load just returns (io.Reader,error)
+	f,err := os.Open(filePath + ".mdl") // file.Load just returns (io.Reader,error)
 	if err != nil {
 		log.Println(err)
 		return
@@ -52,9 +59,9 @@ func main() {
 		return
 	}
 	prop.AddMdl(mdlFile)
-	
+
 	// VVD
-	f,err = file.Load(filePath + ".vvd") // file.Load just returns (io.Reader,error)
+	f,err = os.Open(filePath + ".vvd") // file.Load just returns (io.Reader,error)
 	if err != nil {
 		log.Println(err)
 		return
@@ -65,6 +72,32 @@ func main() {
 		return
 	}
 	prop.AddVvd(vvdFile)
+
+	// VTX
+	f,err = os.Open(filePath + ".vtx") // file.Load just returns (io.Reader,error)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	vtxFile,err := vtx.ReadFromStream(f)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	prop.AddVtx(vtxFile)
+
+	// PHY
+	f,err = os.Open(filePath + ".phy") // file.Load just returns (io.Reader,error)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	phyFile,err := phy.ReadFromStream(f)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	prop.AddPhy(phyFile)
 	
 	log.Println(prop)
 }

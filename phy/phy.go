@@ -94,4 +94,5 @@ type triangleFace struct {
 	_  [3]byte
 	// V3
 	V3 byte
+	_  [3]byte
 }
