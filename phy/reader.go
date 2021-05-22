@@ -106,7 +106,6 @@ func (reader *Reader) readTriangles(buf []byte, initialOffset int) ([]triangleFa
 		if err := binary.Read(bytes.NewBuffer(buf[offset:offset+headerSize]), binary.LittleEndian, &header); err != nil {
 			return nil, nil, nil, err
 		}
-		headers = append(headers, header)
 		vertexDataOffset := offset + int(header.OffsetToVertices)
 		if vertexDataOffset < startOfVertexBlock {
 			startOfVertexBlock = vertexDataOffset
@@ -121,7 +120,6 @@ func (reader *Reader) readTriangles(buf []byte, initialOffset int) ([]triangleFa
 			&headerTriangles); err != nil {
 			return nil, nil, nil, err
 		}
-		triangles = append(triangles, headerTriangles...)
 
 		// Prepare the next offset to the next triangle
 		offset += (headerSize + (len(headerTriangles) * triangleSize))
@@ -130,6 +128,8 @@ func (reader *Reader) readTriangles(buf []byte, initialOffset int) ([]triangleFa
 		if header.DummyFlag & 1 > 0 {
 			continue
 		}
+		headers = append(headers, header)
+		triangles = append(triangles, headerTriangles...)
 
 		// calc number of Verts
 		numVerts := 0
@@ -146,9 +146,9 @@ func (reader *Reader) readTriangles(buf []byte, initialOffset int) ([]triangleFa
 		}
 
 		// read verts
-		triangleVertices := make([]mgl32.Vec4, numVerts)
+		triangleVertices := make([]mgl32.Vec4, numVerts + 1)
 		if err := binary.Read(
-			bytes.NewBuffer(buf[vertexDataOffset:vertexDataOffset + (vertexSize * numVerts)]),
+			bytes.NewBuffer(buf[vertexDataOffset:vertexDataOffset + (vertexSize * (numVerts  + 1))]),
 			binary.LittleEndian,
 			&triangleVertices); err != nil {
 			return nil, nil, nil, err

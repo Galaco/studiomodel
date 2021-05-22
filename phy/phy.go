@@ -87,12 +87,12 @@ type triangleFace struct {
 	Id byte
 	_  [3]byte
 	// V1
-	V1 byte
-	_  [3]byte
+	V1 uint16
+	_  [2]byte
 	// V2
-	V2 byte
-	_  [3]byte
+	V2 uint16
+	_  [2]byte
 	// V3
-	V3 byte
-	_  [3]byte
+	V3 uint16
+	_  [2]byte
 }
