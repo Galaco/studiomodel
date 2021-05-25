@@ -29,9 +29,6 @@ func (reader *Reader) Read(stream io.Reader) (*Phy, error) {
 	}
 
 	offset := int32(0)
-	if header.SolidCount == 1 {
-		return nil, err
-	}
 
 	//bodyparts
 	offset += int32(unsafe.Sizeof(header))
