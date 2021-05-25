@@ -64,9 +64,9 @@ type legacySurfaceHeader struct {
 	VolumeFull int32
 	// BVMaxDeviation_ByteSize
 	// bit vector; split 8:24
-	//BVMaxDeviation_ByteSize int32
+	// BVMaxDeviation_ByteSize int32
 	// OffsetLedgeTreeRoot
-	//OffsetLedgeTreeRoot int32
+	// OffsetLedgeTreeRoot int32
 	_ [4]int32
 }
 

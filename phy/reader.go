@@ -29,15 +29,19 @@ func (reader *Reader) Read(stream io.Reader) (*Phy, error) {
 	}
 
 	offset := int32(0)
+	if header.SolidCount == 1 {
+		return nil, err
+	}
 
 	//bodyparts
 	offset += int32(unsafe.Sizeof(header))
-	compacts, legacys, offset, err := reader.readSolids(buf, offset, header.SolidCount)
+	compacts, legacys, offsets, err := reader.readSolids(buf, offset, header.SolidCount)
 	if err != nil {
 		return nil, err
 	}
 
-	faceHeaders, faces, vertices, err := reader.readTriangles(buf, int(offset))
+
+	faceHeaders, faces, vertices, err := reader.readTriangles(buf, offsets)
 	if err != nil {
 		return nil, err
 	}
@@ -63,9 +67,10 @@ func (reader *Reader) readHeader(buf []byte) (header, error) {
 }
 
 // readSolids reads compact and legacy entries
-func (reader *Reader) readSolids(buf []byte, offset int32, num int32) ([]compactSurfaceHeader, []legacySurfaceHeader, int32, error) {
+func (reader *Reader) readSolids(buf []byte, offset int32, num int32) ([]compactSurfaceHeader, []legacySurfaceHeader, []int, error) {
 	compacts := make([]compactSurfaceHeader, num)
 	legacys := make([]legacySurfaceHeader, num)
+	offsets := make([]int, num)
 	compactSize := int32(unsafe.Sizeof(compactSurfaceHeader{}))
 	legacySize := int32(unsafe.Sizeof(legacySurfaceHeader{}))
 
@@ -73,43 +78,42 @@ func (reader *Reader) readSolids(buf []byte, offset int32, num int32) ([]compact
 		//compact
 		err := binary.Read(bytes.NewBuffer(buf[offset:offset+compactSize]), binary.LittleEndian, &compacts[i])
 		if err != nil {
-			return compacts, legacys, offset, err
+			return compacts, legacys, offsets, err
+		}
+		offsets[i] = int(offset + compactSize + legacySize)
+
+		//legacy
+		err = binary.Read(bytes.NewBuffer(buf[offset + compactSize:offset + compactSize+legacySize]), binary.LittleEndian, &legacys[i])
+		if err != nil {
+			return compacts, legacys, offsets, err
 		}
 
-		offset += compactSize
-		//legacy
-		err = binary.Read(bytes.NewBuffer(buf[offset:offset+legacySize]), binary.LittleEndian, &legacys[i])
-		if err != nil {
-			return compacts, legacys, offset, err
-		}
-		offset += legacySize
+		offset += compacts[i].Size + 4 // ?
+
+
+
 	}
 
-	return compacts, legacys, offset, nil
+	return compacts, legacys, offsets, nil
 }
 
 // readTriangles
-func (reader *Reader) readTriangles(buf []byte, initialOffset int) ([]triangleFaceHeader, []triangleFace, []mgl32.Vec4, error) {
+func (reader *Reader) readTriangles(buf []byte, initialOffsets []int) ([]triangleFaceHeader, []triangleFace, []mgl32.Vec4, error) {
 	headers := make([]triangleFaceHeader, 0)
 	triangles := make([]triangleFace, 0)
 	vertices := make([]mgl32.Vec4, 0)
 	headerSize := int(unsafe.Sizeof(triangleFaceHeader{}))
 	triangleSize := int(unsafe.Sizeof(triangleFace{}))
 	vertexSize := int(unsafe.Sizeof(mgl32.Vec4{}))
-	offset := initialOffset
 
-	startOfVertexBlock := 99999999
-
-	for offset < startOfVertexBlock {
+	for i := 0; i < len(initialOffsets); i++{
+		offset := initialOffsets[i]
 		// Read header
 		header := triangleFaceHeader{}
 		if err := binary.Read(bytes.NewBuffer(buf[offset:offset+headerSize]), binary.LittleEndian, &header); err != nil {
 			return nil, nil, nil, err
 		}
 		vertexDataOffset := offset + int(header.OffsetToVertices)
-		if vertexDataOffset < startOfVertexBlock {
-			startOfVertexBlock = vertexDataOffset
-		}
 
 
 		// Read triangles referenced in header
