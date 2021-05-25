@@ -40,7 +40,6 @@ func (reader *Reader) Read(stream io.Reader) (*Phy, error) {
 		return nil, err
 	}
 
-
 	faceHeaders, faces, vertices, err := reader.readTriangles(buf, offsets)
 	if err != nil {
 		return nil, err
@@ -83,14 +82,12 @@ func (reader *Reader) readSolids(buf []byte, offset int32, num int32) ([]compact
 		offsets[i] = int(offset + compactSize + legacySize)
 
 		//legacy
-		err = binary.Read(bytes.NewBuffer(buf[offset + compactSize:offset + compactSize+legacySize]), binary.LittleEndian, &legacys[i])
+		err = binary.Read(bytes.NewBuffer(buf[offset+compactSize:offset+compactSize+legacySize]), binary.LittleEndian, &legacys[i])
 		if err != nil {
 			return compacts, legacys, offsets, err
 		}
 
 		offset += compacts[i].Size + 4 // ?
-
-
 
 	}
 
@@ -106,7 +103,7 @@ func (reader *Reader) readTriangles(buf []byte, initialOffsets []int) ([]triangl
 	triangleSize := int(unsafe.Sizeof(triangleFace{}))
 	vertexSize := int(unsafe.Sizeof(mgl32.Vec4{}))
 
-	for i := 0; i < len(initialOffsets); i++{
+	for i := 0; i < len(initialOffsets); i++ {
 		offset := initialOffsets[i]
 		// Read header
 		header := triangleFaceHeader{}
@@ -114,7 +111,6 @@ func (reader *Reader) readTriangles(buf []byte, initialOffsets []int) ([]triangl
 			return nil, nil, nil, err
 		}
 		vertexDataOffset := offset + int(header.OffsetToVertices)
-
 
 		// Read triangles referenced in header
 		headerTriangles := make([]triangleFace, header.FaceCount)
@@ -129,7 +125,7 @@ func (reader *Reader) readTriangles(buf []byte, initialOffsets []int) ([]triangl
 		offset += (headerSize + (len(headerTriangles) * triangleSize))
 
 		// Discard if set
-		if header.DummyFlag & 1 > 0 {
+		if header.DummyFlag&1 > 0 {
 			continue
 		}
 		headers = append(headers, header)
@@ -150,9 +146,9 @@ func (reader *Reader) readTriangles(buf []byte, initialOffsets []int) ([]triangl
 		}
 
 		// read verts
-		triangleVertices := make([]mgl32.Vec4, numVerts + 1)
+		triangleVertices := make([]mgl32.Vec4, numVerts+1)
 		if err := binary.Read(
-			bytes.NewBuffer(buf[vertexDataOffset:vertexDataOffset + (vertexSize * (numVerts  + 1))]),
+			bytes.NewBuffer(buf[vertexDataOffset:vertexDataOffset+(vertexSize*(numVerts+1))]),
 			binary.LittleEndian,
 			&triangleVertices); err != nil {
 			return nil, nil, nil, err

@@ -70,7 +70,7 @@ func (reader *Reader) Read(stream io.Reader) (*Mdl, error) {
 	textureNames := make([]string, header.TextureCount)
 	for i := range textures {
 		textureNames[i] = strings.SplitN(
-			string(buf[header.TextureOffset + int32(int(unsafe.Sizeof(Texture{})) * i) + textures[i].NameIndex:]),
+			string(buf[header.TextureOffset+int32(int(unsafe.Sizeof(Texture{}))*i)+textures[i].NameIndex:]),
 			"\x00",
 			int(header.TextureCount+1))[0]
 	}
