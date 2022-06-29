@@ -103,7 +103,7 @@ func (reader *Reader) readTangents(buf []byte, offset int, header *header) ([]mg
 		numTangents += int(header.NumLODVertexes[i])
 	}
 	numTangents = int(header.NumLODVertexes[0])
-	tangents := make([]mgl32.Vec4, tangentSize)
+	tangents := make([]mgl32.Vec4, numTangents)
 	err := binary.Read(bytes.NewBuffer(buf[offset:offset+(tangentSize*numTangents)]), binary.LittleEndian, &tangents)
 
 	return tangents, offset + (tangentSize * numTangents), err
