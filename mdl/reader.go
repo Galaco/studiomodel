@@ -320,13 +320,6 @@ func (reader *Reader) readModelsForBodyPart(buf []byte, bodyPart *BodyPart, body
 	// ModelIndex is relative to the bodypart offset
 	modelOffset := bodyPartOffset + bodyPart.ModelIndex
 
-	fmt.Printf("[MDL DEBUG] readModelsForBodyPart:\n")
-	fmt.Printf("[MDL DEBUG]   bodyPartOffset: %d (0x%X)\n", bodyPartOffset, bodyPartOffset)
-	fmt.Printf("[MDL DEBUG]   bodyPart.NumModels: %d\n", bodyPart.NumModels)
-	fmt.Printf("[MDL DEBUG]   bodyPart.ModelIndex: %d (0x%X)\n", bodyPart.ModelIndex, bodyPart.ModelIndex)
-	fmt.Printf("[MDL DEBUG]   sizeof(Model{}): %d\n", unsafe.Sizeof(Model{}))
-	fmt.Printf("[MDL DEBUG]   calculated modelOffset: %d (0x%X)\n", modelOffset, modelOffset)
-
 	if err := validateOffset(buf, modelOffset, totalSize, "models"); err != nil {
 		return nil, err
 	}
@@ -340,26 +333,6 @@ func (reader *Reader) readModelsForBodyPart(buf []byte, bodyPart *BodyPart, body
 		return nil, fmt.Errorf("failed to read models at offset %d: %w", modelOffset, err)
 	}
 
-	// Log what was actually read for each model
-	for i, model := range models {
-		fmt.Printf("[MDL DEBUG]   Model %d:\n", i)
-		fmt.Printf("[MDL DEBUG]     Name: %s\n", string(model.Name[:]))
-		fmt.Printf("[MDL DEBUG]     NumMeshes: %d (0x%X)\n", model.NumMeshes, model.NumMeshes)
-		fmt.Printf("[MDL DEBUG]     MeshIndex: %d (0x%X)\n", model.MeshIndex, model.MeshIndex)
-		fmt.Printf("[MDL DEBUG]     NumVertices: %d\n", model.NumVertices)
-		fmt.Printf("[MDL DEBUG]     VertexIndex: %d (0x%X)\n", model.VertexIndex, model.VertexIndex)
-		fmt.Printf("[MDL DEBUG]     Unknown fields (bytes 112-148):\n")
-		fmt.Printf("[MDL DEBUG]       Unknown1: %d (0x%08X)\n", model.Unknown1, model.Unknown1)
-		fmt.Printf("[MDL DEBUG]       Unknown2: %d (0x%08X)\n", model.Unknown2, model.Unknown2)
-		fmt.Printf("[MDL DEBUG]       Unknown3: %d (0x%08X)\n", model.Unknown3, model.Unknown3)
-		fmt.Printf("[MDL DEBUG]       Unknown4: %d (0x%08X)\n", model.Unknown4, model.Unknown4)
-		fmt.Printf("[MDL DEBUG]       Unknown5: %d (0x%08X)\n", model.Unknown5, model.Unknown5)
-		fmt.Printf("[MDL DEBUG]       Unknown6: %d (0x%08X)\n", model.Unknown6, model.Unknown6)
-		fmt.Printf("[MDL DEBUG]       Unknown7: %d (0x%08X)\n", model.Unknown7, model.Unknown7)
-		fmt.Printf("[MDL DEBUG]       Unknown8: %d (0x%08X)\n", model.Unknown8, model.Unknown8)
-		fmt.Printf("[MDL DEBUG]       Unknown9: %d (0x%08X)\n", model.Unknown9, model.Unknown9)
-	}
-
 	return models, nil
 }
 
@@ -369,26 +342,13 @@ func (reader *Reader) readMeshesForModel(buf []byte, model *Model, modelOffset i
 		return nil, nil
 	}
 
-	// Debug logging to diagnose negative size issue
-	fmt.Printf("[MDL DEBUG] readMeshesForModel called:\n")
-	fmt.Printf("[MDL DEBUG]   modelOffset: %d (0x%X)\n", modelOffset, modelOffset)
-	fmt.Printf("[MDL DEBUG]   model.NumMeshes: %d (0x%X)\n", model.NumMeshes, model.NumMeshes)
-	fmt.Printf("[MDL DEBUG]   model.MeshIndex: %d (0x%X)\n", model.MeshIndex, model.MeshIndex)
-	fmt.Printf("[MDL DEBUG]   sizeof(Mesh{}): %d\n", unsafe.Sizeof(Mesh{}))
-
 	meshes := make([]Mesh, model.NumMeshes)
 	meshSize := int32(unsafe.Sizeof(Mesh{}))
 	totalSize := meshSize * model.NumMeshes
 
-	fmt.Printf("[MDL DEBUG]   meshSize: %d\n", meshSize)
-	fmt.Printf("[MDL DEBUG]   totalSize (meshSize * NumMeshes): %d\n", totalSize)
-
 	// MeshIndex is relative to the model offset
 	meshOffset := modelOffset + model.MeshIndex
-
-	fmt.Printf("[MDL DEBUG]   calculated meshOffset: %d (0x%X)\n", meshOffset, meshOffset)
-	fmt.Printf("[MDL DEBUG]   buffer length: %d\n", len(buf))
-
+	
 	if err := validateOffset(buf, meshOffset, totalSize, "meshes"); err != nil {
 		return nil, err
 	}
