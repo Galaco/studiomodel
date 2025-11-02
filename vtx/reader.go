@@ -4,9 +4,15 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"github.com/galaco/studiomodel/internal"
 	"io"
 	"unsafe"
+)
+
+const (
+	// VTXVersion is the expected file version for Source engine VTX files
+	VTXVersion = 7
 )
 
 // Reader
@@ -23,111 +29,139 @@ func (reader *Reader) Read(stream io.Reader) (*Vtx, error) {
 	}
 	reader.buf = byteBuf.Bytes()
 
+	// Validate minimum file size
+	if len(reader.buf) < int(unsafe.Sizeof(header{})) {
+		return nil, fmt.Errorf("vtx file too small: %d bytes, expected at least %d", len(reader.buf), unsafe.Sizeof(header{}))
+	}
+
 	// Read header
 	header, err := reader.readHeader()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to read VTX header: %w", err)
+	}
+
+	// Validate version
+	if header.Version != VTXVersion {
+		return nil, fmt.Errorf("unsupported VTX version: got %d, expected %d", header.Version, VTXVersion)
+	}
+
+	// Validate counts
+	if header.NumLODs < 0 || header.NumBodyParts < 0 {
+		return nil, fmt.Errorf("VTX header contains negative counts: NumLODs=%d NumBodyParts=%d", header.NumLODs, header.NumBodyParts)
+	}
+
+	// Validate offsets
+	if header.BodyPartOffset < 0 || int(header.BodyPartOffset) > len(reader.buf) {
+		return nil, fmt.Errorf("VTX body part offset %d out of bounds (file size %d)", header.BodyPartOffset, len(reader.buf))
 	}
 
 	out := Vtx{}
 
-	streamInternal := internal.NewSeeker(&reader.buf)
+	// Parse body parts
+	bodyPartHeaderSize := internal.SizeOf(&bodyPartHeader{})
+	bodyPartStart := header.BodyPartOffset
 
-	streamInternal.Seek(header.BodyPartOffset, streamInternal.Begin)
-	func() {
-		size := internal.SizeOf(&bodyPartHeader{})
-		start := streamInternal.Position
-
-		bodyParts, e := reader.readBodyParts(start, header.NumBodyParts)
-		err = e
-
-		//bodyparts
-		for i, bodyPart := range bodyParts {
-			bodyPartOut := BodyPart{}
-			streamInternal.Seek(start+(int32(i)*size), streamInternal.Begin)
-
-			streamInternal.Seek(bodyPart.ModelOffset, streamInternal.Position)
-			//callback
-			func() {
-				start := streamInternal.Position
-				size := internal.SizeOf(&modelHeader{})
-
-				models, e := reader.readModels(start, bodyPart.NumModels)
-				err = e
-				for j, model := range models {
-					modelOut := Model{}
-					streamInternal.Seek(start+(int32(j)*size), streamInternal.Begin)
-
-					streamInternal.Seek(model.LODOffset, streamInternal.Position)
-					//callback
-					func() {
-						start := streamInternal.Position
-						size := internal.SizeOf(&modelLODHeader{})
-
-						modelLods, e := reader.readModelLODs(start, model.NumLODs)
-						err = e
-						for k, modelLod := range modelLods {
-							modelLODOut := ModelLOD{}
-							streamInternal.Seek(start+(int32(k)*size), streamInternal.Begin)
-
-							streamInternal.Seek(modelLod.MeshOffset, streamInternal.Position)
-							//callback
-							func() {
-								start := streamInternal.Position
-								size := int32(9) //internal.SizeOf(&meshHeader{}) //vtx ignores trailing byte 4-byte alignment
-
-								meshes, e := reader.readMeshes(start, modelLod.NumMeshes)
-								err = e
-								for l, mesh := range meshes {
-									meshOut := Mesh{}
-									streamInternal.Seek(start+(int32(l)*size), streamInternal.Begin)
-
-									streamInternal.Seek(mesh.StripGroupHeaderOffset, streamInternal.Position)
-									//callback
-									func() {
-										start := streamInternal.Position
-										size := int32(25) //internal.SizeOf(&stripGroupHeader{}) //vtx ignores trailing byte 4-byte alignment
-
-										stripGroups, e := reader.readStripGroups(start, mesh.NumStripGroups)
-										err = e
-										for m, stripGroup := range stripGroups {
-											stripGroupOut := StripGroup{}
-											streamInternal.Seek(start+(int32(m)*size), streamInternal.Begin)
-
-											//callback
-											func() {
-												start := streamInternal.Position
-												size := int32(15) //internal.SizeOf(&Strip{})
-
-												stripGroupOut.Vertexes, e = reader.readVertices(start+stripGroup.VertOffset, stripGroup.NumVerts)
-												err = e
-												stripGroupOut.Indices, e = reader.readIndices(start+stripGroup.IndexOffset, stripGroup.NumIndices)
-												err = e
-												stripGroupOut.Strips, e = reader.readStrips(start+stripGroup.StripOffset, stripGroup.NumStrips)
-												err = e
-
-												for n := range stripGroupOut.Strips {
-													streamInternal.Seek(start+(int32(n)*size), streamInternal.Begin)
-												}
-											}()
-											meshOut.StripGroups = append(meshOut.StripGroups, stripGroupOut)
-										}
-									}()
-									modelLODOut.Meshes = append(modelLODOut.Meshes, meshOut)
-								}
-							}()
-							modelOut.LODS = append(modelOut.LODS, modelLODOut)
-						}
-					}()
-					bodyPartOut.Models = append(bodyPartOut.Models, modelOut)
-				}
-			}()
-			out.BodyParts = append(out.BodyParts, bodyPartOut)
-		}
-	}()
-
+	bodyPartHeaders, err := reader.readBodyParts(bodyPartStart, header.NumBodyParts)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to read body parts: %w", err)
+	}
+
+	out.BodyParts = make([]BodyPart, len(bodyPartHeaders))
+
+	// Iterate through body parts
+	for i, bodyPartHeader := range bodyPartHeaders {
+		bodyPartOut := BodyPart{}
+		bodyPartPos := bodyPartStart + (int32(i) * bodyPartHeaderSize)
+		modelStart := bodyPartPos + bodyPartHeader.ModelOffset
+
+		// Parse models
+		modelHeaderSize := internal.SizeOf(&modelHeader{})
+		modelHeaders, err := reader.readModels(modelStart, bodyPartHeader.NumModels)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read models for body part %d: %w", i, err)
+		}
+
+		bodyPartOut.Models = make([]Model, len(modelHeaders))
+
+		// Iterate through models
+		for j, modelHeader := range modelHeaders {
+			modelOut := Model{}
+			modelPos := modelStart + (int32(j) * modelHeaderSize)
+			modelLODStart := modelPos + modelHeader.LODOffset
+
+			// Parse model LODs
+			modelLODHeaderSize := internal.SizeOf(&modelLODHeader{})
+			modelLODHeaders, err := reader.readModelLODs(modelLODStart, modelHeader.NumLODs)
+			if err != nil {
+				return nil, fmt.Errorf("failed to read LODs for model %d in body part %d: %w", j, i, err)
+			}
+
+			modelOut.LODS = make([]ModelLOD, len(modelLODHeaders))
+
+			// Iterate through LODs
+			for k, modelLODHeader := range modelLODHeaders {
+				modelLODOut := ModelLOD{}
+				modelLODPos := modelLODStart + (int32(k) * modelLODHeaderSize)
+				meshStart := modelLODPos + modelLODHeader.MeshOffset
+
+				// Parse meshes
+				meshHeaderSize := int32(9) // VTX ignores trailing byte 4-byte alignment
+				meshHeaders, err := reader.readMeshes(meshStart, modelLODHeader.NumMeshes)
+				if err != nil {
+					return nil, fmt.Errorf("failed to read meshes for LOD %d, model %d, body part %d: %w", k, j, i, err)
+				}
+
+				modelLODOut.Meshes = make([]Mesh, len(meshHeaders))
+
+				// Iterate through meshes
+				for l, meshHeader := range meshHeaders {
+					meshOut := Mesh{}
+					meshPos := meshStart + (int32(l) * meshHeaderSize)
+					stripGroupStart := meshPos + meshHeader.StripGroupHeaderOffset
+
+					// Parse strip groups
+					stripGroupHeaderSize := int32(25) // VTX ignores trailing byte 4-byte alignment
+					stripGroupHeaders, err := reader.readStripGroups(stripGroupStart, meshHeader.NumStripGroups)
+					if err != nil {
+						return nil, fmt.Errorf("failed to read strip groups for mesh %d, LOD %d, model %d, body part %d: %w", l, k, j, i, err)
+					}
+
+					meshOut.StripGroups = make([]StripGroup, len(stripGroupHeaders))
+
+					// Iterate through strip groups
+					for m, stripGroupHeader := range stripGroupHeaders {
+						stripGroupOut := StripGroup{}
+						stripGroupPos := stripGroupStart + (int32(m) * stripGroupHeaderSize)
+
+						// Read vertices, indices, and strips for this strip group
+						stripGroupOut.Vertexes, err = reader.readVertices(stripGroupPos+stripGroupHeader.VertOffset, stripGroupHeader.NumVerts)
+						if err != nil {
+							return nil, fmt.Errorf("failed to read vertices for strip group %d: %w", m, err)
+						}
+
+						stripGroupOut.Indices, err = reader.readIndices(stripGroupPos+stripGroupHeader.IndexOffset, stripGroupHeader.NumIndices)
+						if err != nil {
+							return nil, fmt.Errorf("failed to read indices for strip group %d: %w", m, err)
+						}
+
+						stripGroupOut.Strips, err = reader.readStrips(stripGroupPos+stripGroupHeader.StripOffset, stripGroupHeader.NumStrips)
+						if err != nil {
+							return nil, fmt.Errorf("failed to read strips for strip group %d: %w", m, err)
+						}
+
+						meshOut.StripGroups[m] = stripGroupOut
+					}
+
+					modelLODOut.Meshes[l] = meshOut
+				}
+
+				modelOut.LODS[k] = modelLODOut
+			}
+
+			bodyPartOut.Models[j] = modelOut
+		}
+
+		out.BodyParts[i] = bodyPartOut
 	}
 
 	return &out, nil
@@ -249,6 +283,12 @@ func (reader *Reader) readStrips(offset int32, num int32) ([]Strip, error) {
 
 func isPropertyValid(offset int32, num int32, bufferSize int) bool {
 	if num < 1 || offset < 1 {
+		return false
+	}
+	// Actually check if the data fits within the buffer
+	// Note: This is a conservative check that doesn't know struct size,
+	// but at least validates the offset is reasonable
+	if int(offset) >= bufferSize {
 		return false
 	}
 	return true
