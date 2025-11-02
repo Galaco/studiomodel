@@ -248,3 +248,90 @@ type Texture struct {
 
 	_ [10]int32
 }
+
+// BodyPart represents a bodygroup (e.g., "head", "body", "arms")
+// Corresponds to mstudiobodyparts_t in studio.h
+type BodyPart struct {
+	// NameIndex - offset to bodypart name string (relative to this struct)
+	NameIndex int32
+	// NumModels - number of models in this bodypart
+	NumModels int32
+	// Base - used for bodygroup value calculation
+	Base int32
+	// ModelIndex - byte offset from start of this struct to first Model
+	ModelIndex int32
+}
+
+// Model represents a model within a bodypart (e.g., different head variations)
+// Corresponds to mstudiomodel_t in studio.h
+type Model struct {
+	// Name - 64-byte null-padded model name
+	Name [64]byte
+	// Type - model type (unused in most cases)
+	Type int32
+	// BoundingRadius - bounding sphere radius
+	BoundingRadius float32
+
+	// NumMeshes - number of meshes in this model
+	NumMeshes int32
+	// MeshIndex - byte offset from start of this struct to first Mesh
+	MeshIndex int32
+
+	// NumVertices - total unique vertices in this model
+	NumVertices int32
+	// VertexIndex - offset to vertex data (relative to model start)
+	VertexIndex int32
+	// VertexInfoIndex - offset to vertex bone info
+	VertexInfoIndex int32
+
+	// NumNormals - total normals
+	NumNormals int32
+	// NormalIndex - offset to normal data
+	NormalIndex int32
+	// NormalInfoIndex - offset to normal bone info
+	NormalInfoIndex int32
+
+	// NumGroups - number of deformation groups
+	NumGroups int32
+	// GroupIndex - offset to groups
+	GroupIndex int32
+}
+
+// Mesh represents a mesh within a model (corresponds to a single material)
+// Corresponds to mstudiomesh_t in studio.h
+type Mesh struct {
+	// Material - ⭐ KEY FIELD! Index into the studiohdr's texture array
+	Material int32
+
+	// ModelIndex - offset back to the model (relative offset)
+	ModelIndex int32
+
+	// NumVertices - number of unique vertices in this mesh
+	NumVertices int32
+	// VertexOffset - offset to vertex indices (relative to model vertex data)
+	VertexOffset int32
+
+	// NumFlexes - number of flex controllers
+	NumFlexes int32
+	// FlexIndex - offset to flex data
+	FlexIndex int32
+
+	// MaterialType - material flags
+	MaterialType int32
+	// MaterialParam - material parameter
+	MaterialParam int32
+
+	// MeshID - unique mesh identifier
+	MeshID int32
+
+	// Center - mesh center point for culling
+	Center mgl32.Vec3
+
+	// MeshData - pointer to mesh vertex data (not used in file parsing)
+	MeshData int32
+
+	// NumLODVertexes - vertex counts per LOD level
+	NumLODVertexes [8]int32
+
+	_ [8]int32 // Padding/unused fields
+}

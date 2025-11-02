@@ -1,6 +1,9 @@
 package mdl
 
-import "github.com/go-gl/mathgl/mgl32"
+import (
+	"fmt"
+	"github.com/go-gl/mathgl/mgl32"
+)
 
 // Studiohdr is the Mdl header. Contains offsets and info for different data in this file, and associated formats.
 // Struct name is kept the same as Valve implementation for readability.
@@ -206,6 +209,18 @@ type Studiohdr struct {
 	_ int32
 }
 
+// BodyPartData contains a parsed body part with its models
+type BodyPartData struct {
+	Header BodyPart
+	Models []ModelData
+}
+
+// ModelData contains a parsed model with its meshes
+type ModelData struct {
+	Header Model
+	Meshes []Mesh
+}
+
 // Mdl represents the complete parsed data in an Mdl file.
 type Mdl struct {
 	// Header
@@ -226,7 +241,44 @@ type Mdl struct {
 	TextureNames []string //mapped to Textures above.
 	// TextureDirs
 	TextureDirs []string
+	// BodyParts - parsed body part hierarchy
+	// Added to expose body part/model/mesh hierarchy with material indices
+	BodyParts []BodyPartData
 
 	// Some skin stuff here
 	// @TODO there may be latter properties
+}
+
+// GetMaterialIndexForMesh returns the material index for a specific mesh
+// bodyPartIdx, modelIdx, and meshIdx correspond to the VTX hierarchy indices
+func (mdl *Mdl) GetMaterialIndexForMesh(bodyPartIdx, modelIdx, meshIdx int) (int32, error) {
+	if bodyPartIdx >= len(mdl.BodyParts) {
+		return 0, fmt.Errorf("body part index %d out of range (have %d body parts)", bodyPartIdx, len(mdl.BodyParts))
+	}
+
+	bodyPart := &mdl.BodyParts[bodyPartIdx]
+	if modelIdx >= len(bodyPart.Models) {
+		return 0, fmt.Errorf("model index %d out of range in body part %d (have %d models)", modelIdx, bodyPartIdx, len(bodyPart.Models))
+	}
+
+	model := &bodyPart.Models[modelIdx]
+	if meshIdx >= len(model.Meshes) {
+		return 0, fmt.Errorf("mesh index %d out of range in model %d (have %d meshes)", meshIdx, modelIdx, len(model.Meshes))
+	}
+
+	return model.Meshes[meshIdx].Material, nil
+}
+
+// GetAllMaterialIndices returns a flat list of all material indices used by this model
+// Useful for preloading materials
+func (mdl *Mdl) GetAllMaterialIndices() []int32 {
+	indices := make([]int32, 0)
+	for _, bodyPart := range mdl.BodyParts {
+		for _, model := range bodyPart.Models {
+			for _, mesh := range model.Meshes {
+				indices = append(indices, mesh.Material)
+			}
+		}
+	}
+	return indices
 }

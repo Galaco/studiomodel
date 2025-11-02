@@ -176,6 +176,48 @@ func (reader *Reader) Read(stream io.Reader) (*Mdl, error) {
 		textureDirs[i] = path
 	}
 
+	// Parse body parts hierarchy (body parts → models → meshes)
+	var bodyParts []BodyPartData
+	if header.BodyPartCount > 0 {
+		bodyPartHeaders, err := reader.readBodyParts(buf, header)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse body parts: %w", err)
+		}
+
+		// Parse models and meshes for each body part
+		bodyParts = make([]BodyPartData, len(bodyPartHeaders))
+		for i, bodyPartHeader := range bodyPartHeaders {
+			bodyPartOffset := header.BodypartOffset + int32(i)*int32(unsafe.Sizeof(BodyPart{}))
+
+			// Read models for this body part
+			models, err := reader.readModelsForBodyPart(buf, &bodyPartHeader, bodyPartOffset)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse models for body part %d: %w", i, err)
+			}
+
+			// Parse meshes for each model
+			modelData := make([]ModelData, len(models))
+			for j, model := range models {
+				modelOffset := bodyPartOffset + bodyPartHeader.ModelIndex + int32(j)*int32(unsafe.Sizeof(Model{}))
+
+				meshes, err := reader.readMeshesForModel(buf, &model, modelOffset)
+				if err != nil {
+					return nil, fmt.Errorf("failed to parse meshes for model %d in body part %d: %w", j, i, err)
+				}
+
+				modelData[j] = ModelData{
+					Header: model,
+					Meshes: meshes,
+				}
+			}
+
+			bodyParts[i] = BodyPartData{
+				Header: bodyPartHeader,
+				Models: modelData,
+			}
+		}
+	}
+
 	return &Mdl{
 		Header:          *header,
 		Bones:           bones,
@@ -186,6 +228,7 @@ func (reader *Reader) Read(stream io.Reader) (*Mdl, error) {
 		Textures:        textures,
 		TextureNames:    textureNames,
 		TextureDirs:     textureDirs,
+		BodyParts:       bodyParts,
 	}, nil
 }
 
@@ -236,4 +279,88 @@ func readCString(buf []byte, offset int, maxLen int) (string, error) {
 	}
 
 	return string(buf[offset:end]), nil
+}
+
+// readBodyParts parses all body part structures from the MDL file
+func (reader *Reader) readBodyParts(buf []byte, header *Studiohdr) ([]BodyPart, error) {
+	if header.BodyPartCount == 0 {
+		return nil, nil
+	}
+
+	bodyParts := make([]BodyPart, header.BodyPartCount)
+	bodyPartSize := int32(unsafe.Sizeof(BodyPart{}))
+	totalSize := bodyPartSize * header.BodyPartCount
+
+	if err := validateOffset(buf, header.BodypartOffset, totalSize, "body parts"); err != nil {
+		return nil, err
+	}
+
+	err := binary.Read(
+		bytes.NewBuffer(buf[header.BodypartOffset:header.BodypartOffset+totalSize]),
+		binary.LittleEndian,
+		&bodyParts,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read body parts at offset %d: %w", header.BodypartOffset, err)
+	}
+
+	return bodyParts, nil
+}
+
+// readModelsForBodyPart parses all models within a body part
+func (reader *Reader) readModelsForBodyPart(buf []byte, bodyPart *BodyPart, bodyPartOffset int32) ([]Model, error) {
+	if bodyPart.NumModels == 0 {
+		return nil, nil
+	}
+
+	models := make([]Model, bodyPart.NumModels)
+	modelSize := int32(unsafe.Sizeof(Model{}))
+	totalSize := modelSize * bodyPart.NumModels
+
+	// ModelIndex is relative to the bodypart offset
+	modelOffset := bodyPartOffset + bodyPart.ModelIndex
+
+	if err := validateOffset(buf, modelOffset, totalSize, "models"); err != nil {
+		return nil, err
+	}
+
+	err := binary.Read(
+		bytes.NewBuffer(buf[modelOffset:modelOffset+totalSize]),
+		binary.LittleEndian,
+		&models,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read models at offset %d: %w", modelOffset, err)
+	}
+
+	return models, nil
+}
+
+// readMeshesForModel parses all meshes within a model
+func (reader *Reader) readMeshesForModel(buf []byte, model *Model, modelOffset int32) ([]Mesh, error) {
+	if model.NumMeshes == 0 {
+		return nil, nil
+	}
+
+	meshes := make([]Mesh, model.NumMeshes)
+	meshSize := int32(unsafe.Sizeof(Mesh{}))
+	totalSize := meshSize * model.NumMeshes
+
+	// MeshIndex is relative to the model offset
+	meshOffset := modelOffset + model.MeshIndex
+
+	if err := validateOffset(buf, meshOffset, totalSize, "meshes"); err != nil {
+		return nil, err
+	}
+
+	err := binary.Read(
+		bytes.NewBuffer(buf[meshOffset:meshOffset+totalSize]),
+		binary.LittleEndian,
+		&meshes,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read meshes at offset %d: %w", meshOffset, err)
+	}
+
+	return meshes, nil
 }
