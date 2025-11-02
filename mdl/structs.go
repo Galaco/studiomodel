@@ -295,6 +295,20 @@ type Model struct {
 	NumGroups int32
 	// GroupIndex - offset to groups
 	GroupIndex int32
+
+	// TEMPORARY: Padding to match actual C struct size (148 bytes total)
+	// We're missing 36 bytes (9 int32 fields) after GroupIndex
+	// These need to be identified from Source SDK headers
+	Unknown1 int32 // Offset 112
+	Unknown2 int32 // Offset 116
+	Unknown3 int32 // Offset 120
+	Unknown4 int32 // Offset 124
+	Unknown5 int32 // Offset 128
+	Unknown6 int32 // Offset 132
+	Unknown7 int32 // Offset 136
+	Unknown8 int32 // Offset 140
+	Unknown9 int32 // Offset 144
+	// Total: 148 bytes
 }
 
 // Mesh represents a mesh within a model (corresponds to a single material)
