@@ -17,16 +17,17 @@ Tested against Counter Strike Source and Counter Strike Global Offensive
 
 #### Features
 
-* VVD reader is stable. Fixups are exposed but not yet applied, so multi-LOD models need them resolved by the caller
-* VTX reader reads all LODs. The larger strip headers used by MDL v49 are detected automatically, or can be
-selected with `vtx.ReadFromStreamWithMDLVersion`
+* VVD reader is stable. `VerticesForRootLOD` applies fixups, giving vertices in the order mdl and vtx indices expect
+* VTX reader reads all LODs, with their switch points, mesh and strip group flags, and material replacements. The
+larger strip headers used by MDL v49 are detected automatically, or can be selected with
+`vtx.ReadFromStreamWithMDLVersion`
 * MDL reader is usable, currently incomplete: it reads the header, bones, bone controllers, hitbox sets, animation and
-sequence descriptions, textures and the body part / model / mesh tree. Names, skins, animation data and most other
-sections are not read yet
+sequence descriptions, textures, skins and the body part / model / mesh tree, with their names. Hitboxes,
+attachments, animation data and most other sections are not read yet
 * PHY reader reads every solid and its convex pieces. The key-values text that follows them is exposed as a string
 but not parsed yet
-
-
+* `StudioModel.BuildLOD` combines the mdl, vvd and vtx into triangle lists per mesh for a LOD and skin, and
+`StudioModel.Validate` checks the files' checksums match
 
 ### Usage
 ```go
@@ -100,8 +101,21 @@ func main() {
 		return
 	}
 	prop.AddPhy(phyFile)
-	
-	log.Println(prop)
+
+	if err := prop.Validate(); err != nil {
+		log.Println(err)
+		return
+	}
+
+	// Triangles for every mesh of the most detailed LOD, with skin 0
+	lod, err := prop.BuildLOD(0, 0)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	for _, mesh := range lod.Meshes {
+		log.Println(mesh.Material, len(mesh.Indices)/3, "triangles")
+	}
 }
 ```
 

@@ -1,6 +1,9 @@
 package studiomodel
 
 import (
+	"errors"
+	"fmt"
+
 	"github.com/galaco/studiomodel/mdl"
 	"github.com/galaco/studiomodel/phy"
 	"github.com/galaco/studiomodel/vtx"
@@ -24,6 +27,24 @@ type StudioModel struct {
 // HasCollisionModel
 func (model *StudioModel) HasCollisionModel() bool {
 	return model.Phy != nil
+}
+
+// Validate checks that the vvd, vtx and phy were compiled with the mdl, by comparing their checksums
+func (model *StudioModel) Validate() error {
+	if model.Mdl == nil {
+		return errors.New("no mdl to validate against")
+	}
+	want := model.Mdl.Header.Checksum
+	if model.Vvd != nil && model.Vvd.Header.Checksum != want {
+		return fmt.Errorf("vvd checksum %d does not match mdl checksum %d", model.Vvd.Header.Checksum, want)
+	}
+	if model.Vtx != nil && model.Vtx.Header.CheckSum != want {
+		return fmt.Errorf("vtx checksum %d does not match mdl checksum %d", model.Vtx.Header.CheckSum, want)
+	}
+	if model.Phy != nil && model.Phy.Header.CheckSum != want {
+		return fmt.Errorf("phy checksum %d does not match mdl checksum %d", model.Phy.Header.CheckSum, want)
+	}
+	return nil
 }
 
 // AddMdl

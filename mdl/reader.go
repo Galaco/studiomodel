@@ -1,9 +1,12 @@
 package mdl
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"io"
+	"slices"
+	"strings"
 
 	"github.com/galaco/studiomodel/internal"
 )
@@ -63,6 +66,14 @@ func (reader *Reader) Read(stream io.Reader) (*Mdl, error) {
 	if err != nil {
 		return nil, err
 	}
+	boneNames, err := readNames(buf, header.BoneOffset, bones, func(b Bone) int32 { return b.NameIndex }, "bone")
+	if err != nil {
+		return nil, err
+	}
+	boneSurfaceProps, err := readNames(buf, header.BoneOffset, bones, func(b Bone) int32 { return b.SurfacePropIndex }, "bone surface prop")
+	if err != nil {
+		return nil, err
+	}
 
 	boneControllers, err := internal.ReadSlice[BoneController](buf, int64(header.BoneControllerOffset), int64(header.BoneControllerCount), "bone controllers")
 	if err != nil {
@@ -73,13 +84,29 @@ func (reader *Reader) Read(stream io.Reader) (*Mdl, error) {
 	if err != nil {
 		return nil, err
 	}
+	hitboxSetNames, err := readNames(buf, header.HitboxOffset, hitboxSets, func(h HitboxSet) int32 { return h.NameIndex }, "hitbox set")
+	if err != nil {
+		return nil, err
+	}
 
 	animDescs, err := internal.ReadSlice[AnimDesc](buf, int64(header.LocalAnimationOffset), int64(header.LocalAnimationCount), "animation descriptions")
 	if err != nil {
 		return nil, err
 	}
+	animDescNames, err := readNames(buf, header.LocalAnimationOffset, animDescs, func(a AnimDesc) int32 { return a.NameIndex }, "animation")
+	if err != nil {
+		return nil, err
+	}
 
 	sequenceDescs, err := internal.ReadSlice[SequenceDesc](buf, int64(header.LocalSequenceOffset), int64(header.LocalSequenceCount), "sequence descriptions")
+	if err != nil {
+		return nil, err
+	}
+	sequenceLabels, err := readNames(buf, header.LocalSequenceOffset, sequenceDescs, func(s SequenceDesc) int32 { return s.LabelIndex }, "sequence")
+	if err != nil {
+		return nil, err
+	}
+	sequenceActivityNames, err := readNames(buf, header.LocalSequenceOffset, sequenceDescs, func(s SequenceDesc) int32 { return s.ActivityNameIndex }, "sequence activity")
 	if err != nil {
 		return nil, err
 	}
@@ -89,16 +116,9 @@ func (reader *Reader) Read(stream io.Reader) (*Mdl, error) {
 		return nil, err
 	}
 
-	// Texture name offsets are relative to the start of each texture
-	textureSize := int64(binary.Size(Texture{}))
-	textureNames := make([]string, len(textures))
-	for i := range textures {
-		nameOffset := int64(header.TextureOffset) + textureSize*int64(i) + int64(textures[i].NameIndex)
-		name, err := internal.CString(buf, nameOffset, 256, fmt.Sprintf("texture %d name", i))
-		if err != nil {
-			return nil, err
-		}
-		textureNames[i] = name
+	textureNames, err := readNames(buf, header.TextureOffset, textures, func(t Texture) int32 { return t.NameIndex }, "texture")
+	if err != nil {
+		return nil, err
 	}
 
 	textureDirOffsets, err := internal.ReadSlice[int32](buf, int64(header.TextureDirOffset), int64(header.TextureDirCount), "texture directory offsets")
@@ -115,6 +135,16 @@ func (reader *Reader) Read(stream io.Reader) (*Mdl, error) {
 		textureDirs[i] = path
 	}
 
+	skinFamilies, err := reader.readSkinFamilies(buf, header)
+	if err != nil {
+		return nil, err
+	}
+
+	surfaceProp, keyValues, err := reader.readHeaderStrings(buf, header)
+	if err != nil {
+		return nil, err
+	}
+
 	// Parse body parts hierarchy (body parts → models → meshes)
 	bodyParts, err := reader.readBodyParts(buf, header)
 	if err != nil {
@@ -122,17 +152,88 @@ func (reader *Reader) Read(stream io.Reader) (*Mdl, error) {
 	}
 
 	return &Mdl{
-		Header:          *header,
-		Bones:           bones,
-		BoneControllers: boneControllers,
-		HitboxSet:       hitboxSets,
-		AnimDescs:       animDescs,
-		SequenceDescs:   sequenceDescs,
-		Textures:        textures,
-		TextureNames:    textureNames,
-		TextureDirs:     textureDirs,
-		BodyParts:       bodyParts,
+		Header:                *header,
+		Name:                  fixedString(header.Name[:]),
+		SurfaceProp:           surfaceProp,
+		KeyValues:             keyValues,
+		Bones:                 bones,
+		BoneNames:             boneNames,
+		BoneSurfaceProps:      boneSurfaceProps,
+		BoneControllers:       boneControllers,
+		HitboxSet:             hitboxSets,
+		HitboxSetNames:        hitboxSetNames,
+		AnimDescs:             animDescs,
+		AnimDescNames:         animDescNames,
+		SequenceDescs:         sequenceDescs,
+		SequenceLabels:        sequenceLabels,
+		SequenceActivityNames: sequenceActivityNames,
+		Textures:              textures,
+		TextureNames:          textureNames,
+		TextureDirs:           textureDirs,
+		SkinFamilies:          skinFamilies,
+		BodyParts:             bodyParts,
 	}, nil
+}
+
+// readNames reads a name for each of items, which are stored back to back from start. Each name's offset, from
+// nameIndex, is relative to its item; an offset of 0 means no name.
+func readNames[T any](buf []byte, start int32, items []T, nameIndex func(T) int32, what string) ([]string, error) {
+	var zero T
+	size := int64(binary.Size(zero))
+	names := make([]string, len(items))
+	for i, item := range items {
+		index := nameIndex(item)
+		if index == 0 {
+			continue
+		}
+		name, err := internal.CString(buf, int64(start)+int64(i)*size+int64(index), 256, fmt.Sprintf("%s %d name", what, i))
+		if err != nil {
+			return nil, err
+		}
+		names[i] = name
+	}
+	return names, nil
+}
+
+// fixedString returns the text of a null-padded fixed-size string
+func fixedString(b []byte) string {
+	if end := bytes.IndexByte(b, 0); end >= 0 {
+		return string(b[:end])
+	}
+	return string(b)
+}
+
+// readSkinFamilies reads the skin table: for each skin, the texture index for each mesh material
+func (reader *Reader) readSkinFamilies(buf []byte, header *Studiohdr) ([][]int16, error) {
+	numSkinRefs, numSkinFamilies := int64(header.SkinReferenceCount), int64(header.SkinReferenceFamilyCount)
+	if numSkinRefs < 0 || numSkinFamilies < 0 {
+		return nil, fmt.Errorf("invalid skin table size: %d skins of %d materials", numSkinFamilies, numSkinRefs)
+	}
+	if numSkinRefs == 0 {
+		return nil, nil
+	}
+	skinRefs, err := internal.ReadSlice[int16](buf, int64(header.SkinReferenceIndex), numSkinFamilies*numSkinRefs, "skin families")
+	if err != nil {
+		return nil, err
+	}
+	return slices.Collect(slices.Chunk(skinRefs, int(numSkinRefs))), nil
+}
+
+// readHeaderStrings reads the model's surface property and key-values, whose offsets are relative to the header
+func (reader *Reader) readHeaderStrings(buf []byte, header *Studiohdr) (surfaceProp string, keyValues string, err error) {
+	if header.SurfacePropertyIndex != 0 {
+		if surfaceProp, err = internal.CString(buf, int64(header.SurfacePropertyIndex), 256, "surface prop"); err != nil {
+			return "", "", err
+		}
+	}
+	if header.KeyValueCount > 0 {
+		start, size := int64(header.KeyValueIndex), int64(header.KeyValueCount)
+		if err := internal.CheckRange(buf, start, size, "key values"); err != nil {
+			return "", "", err
+		}
+		keyValues = strings.TrimRight(string(buf[start:start+size]), "\x00")
+	}
+	return surfaceProp, keyValues, nil
 }
 
 // readHeader Reads studiohdr header information
@@ -149,6 +250,11 @@ func NewReader() *Reader {
 // readBodyParts parses all body parts, and the models and meshes within them
 func (reader *Reader) readBodyParts(buf []byte, header *Studiohdr) ([]BodyPartData, error) {
 	bodyPartHeaders, err := internal.ReadSlice[BodyPart](buf, int64(header.BodypartOffset), int64(header.BodyPartCount), "body parts")
+	if err != nil {
+		return nil, err
+	}
+
+	bodyPartNames, err := readNames(buf, header.BodypartOffset, bodyPartHeaders, func(b BodyPart) int32 { return b.NameIndex }, "body part")
 	if err != nil {
 		return nil, err
 	}
@@ -176,12 +282,14 @@ func (reader *Reader) readBodyParts(buf []byte, header *Studiohdr) ([]BodyPartDa
 
 			modelData[j] = ModelData{
 				Header: model,
+				Name:   fixedString(model.Name[:]),
 				Meshes: meshes,
 			}
 		}
 
 		bodyParts[i] = BodyPartData{
 			Header: bodyPart,
+			Name:   bodyPartNames[i],
 			Models: modelData,
 		}
 	}

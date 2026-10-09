@@ -75,15 +75,19 @@ func ReadStrided[T any](buf []byte, offset int64, count int64, stride int64, nam
 	return out, nil
 }
 
-// CString reads a null-terminated string at offset, stopping after maxLen bytes or at the end of buf.
+// CString reads a null-terminated string at offset, truncated to maxLen bytes. Reaching the end of buf first is an
+// error.
 func CString(buf []byte, offset int64, maxLen int, name string) (string, error) {
 	if offset < 0 || offset >= int64(len(buf)) {
 		return "", fmt.Errorf("%s string offset %d out of bounds (buffer size %d)", name, offset, len(buf))
 	}
 	end := offset
-	limit := min(offset+int64(maxLen), int64(len(buf)))
-	for end < limit && buf[end] != 0 {
+	limit := offset + int64(maxLen)
+	for end < limit && end < int64(len(buf)) && buf[end] != 0 {
 		end++
+	}
+	if end == int64(len(buf)) {
+		return "", fmt.Errorf("%s string at offset %d is not terminated before the end of the buffer", name, offset)
 	}
 	return string(buf[offset:end]), nil
 }

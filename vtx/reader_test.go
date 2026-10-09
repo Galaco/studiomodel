@@ -3,6 +3,7 @@ package vtx
 import (
 	"bytes"
 	"encoding/binary"
+	"reflect"
 	"testing"
 
 	"github.com/galaco/studiomodel/internal/testutil"
@@ -21,12 +22,12 @@ func buildVtx(extended bool) []byte {
 	// header: version, vertCacheSize, maxBonesPerStrip, maxBonesPerTri, maxBonesPerVert, checkSum, numLODs,
 	// materialReplacementListOffset, numBodyParts, bodyPartOffset
 	b.I32(7, 24).I16(53, 9).I32(3, 1234, 1, 0, 1, 36)
-	b.I32(2, 8)         // body part 0 at 36: numModels, modelOffset -> 44
-	b.I32(1, 16)        // model 0 at 44: numLODs, lodOffset -> 60
-	b.I32(1, 20)        // model 1 at 52 (blank): numLODs, lodOffset -> 72
-	b.I32(1, 24).F32(0) // model 0 LOD 0 at 60: numMeshes, meshOffset -> 84, switchPoint
-	b.I32(0, 0).F32(0)  // model 1 LOD 0 at 72: no meshes
-	b.I32(2, 9).U8(0)   // mesh 0 at 84: numStripGroups, stripGroupHeaderOffset -> 93, flags
+	b.I32(2, 8)                // body part 0 at 36: numModels, modelOffset -> 44
+	b.I32(1, 16)               // model 0 at 44: numLODs, lodOffset -> 60
+	b.I32(1, 20)               // model 1 at 52 (blank): numLODs, lodOffset -> 72
+	b.I32(1, 24).F32(12.5)     // model 0 LOD 0 at 60: numMeshes, meshOffset -> 84, switchPoint
+	b.I32(0, 0).F32(0)         // model 1 LOD 0 at 72: no meshes
+	b.I32(2, 9).U8(MeshIsEyes) // mesh 0 at 84: numStripGroups, stripGroupHeaderOffset -> 93, flags
 
 	// strips per strip group: numIndices, indexOffset, numVerts, vertOffset
 	stripGroups := [][][4]int32{
@@ -55,9 +56,15 @@ func buildVtx(extended bool) []byte {
 		b.SetI32(pos+20, int32(b.Pos()-pos))
 		for _, s := range strips {
 			// numIndices, indexOffset, numVerts, vertOffset, numBones, flags, numBoneStateChanges, boneStateChangeOffset
-			b.I32(s[0], s[1], s[2], s[3]).I16(1).U8(1).I32(0, 0).Zero(extra)
+			b.I32(s[0], s[1], s[2], s[3]).I16(1).U8(StripIsTriList).I32(0, 0).Zero(extra)
 		}
 	}
+
+	// The one LOD's material replacements: material 2 becomes models/test/lod1
+	b.SetI32(24, int32(b.Pos()))
+	b.I32(1, 8)     // numReplacements, replacementOffset
+	b.I16(2).I32(6) // materialID, name offset
+	b.Str("models/test/lod1")
 
 	return b.Bytes
 }
@@ -68,7 +75,7 @@ func TestStructSizes(t *testing.T) {
 		value any
 		want  int
 	}{
-		"FileHeader_t":       {header{}, 36},
+		"FileHeader_t":       {Header{}, 36},
 		"BodyPartHeader_t":   {bodyPartHeader{}, 8},
 		"ModelHeader_t":      {modelHeader{}, 8},
 		"ModelLODHeader_t":   {modelLODHeader{}, 12},
@@ -93,15 +100,29 @@ func TestRead(t *testing.T) {
 			if len(v.BodyParts) != 1 || len(v.BodyParts[0].Models) != 2 {
 				t.Fatalf("got %d body parts", len(v.BodyParts))
 			}
+			if v.Header.CheckSum != 1234 {
+				t.Errorf("checksum: got %d, want 1234", v.Header.CheckSum)
+			}
+			want := [][]MaterialReplacement{{{MaterialID: 2, Name: "models/test/lod1"}}}
+			if !reflect.DeepEqual(v.MaterialReplacements, want) {
+				t.Errorf("material replacements: got %+v, want %+v", v.MaterialReplacements, want)
+			}
 
 			blank := v.BodyParts[0].Models[1]
 			if len(blank.LODS) != 1 || len(blank.LODS[0].Meshes) != 0 {
 				t.Errorf("blank model: got %+v", blank)
 			}
 
-			meshes := v.BodyParts[0].Models[0].LODS[0].Meshes
+			lod := v.BodyParts[0].Models[0].LODS[0]
+			if lod.SwitchPoint != 12.5 {
+				t.Errorf("switch point: got %v, want 12.5", lod.SwitchPoint)
+			}
+			meshes := lod.Meshes
 			if len(meshes) != 1 || len(meshes[0].StripGroups) != 2 {
 				t.Fatalf("model 0: got %+v", meshes)
+			}
+			if meshes[0].Flags != MeshIsEyes || meshes[0].StripGroups[0].Flags != StripGroupIsHWSkinned {
+				t.Errorf("flags: got mesh %d, strip group %d", meshes[0].Flags, meshes[0].StripGroups[0].Flags)
 			}
 			second := meshes[0].StripGroups[1]
 			if len(second.Vertexes) != 6 || second.Vertexes[5].OriginalMeshVertexID != 5 || len(second.Indices) != 6 || second.Indices[5] != 5 {
@@ -136,7 +157,7 @@ func TestReadWithMDLVersion(t *testing.T) {
 func TestReadTruncated(t *testing.T) {
 	for _, extended := range []bool{false, true} {
 		buf := buildVtx(extended)
-		for n := range len(buf) - topologyFieldsSize {
+		for n := range len(buf) {
 			if _, err := ReadFromStream(bytes.NewReader(buf[:n])); err == nil {
 				t.Errorf("extended=%v truncated to %d bytes: expected an error", extended, n)
 			}

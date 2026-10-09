@@ -28,7 +28,7 @@ func (reader *Reader) Read(stream io.Reader) (*Vvd, error) {
 	}
 
 	// Validate minimum file size
-	headerSize := binary.Size(header{})
+	headerSize := binary.Size(Header{})
 	if len(buf) < headerSize {
 		return nil, fmt.Errorf("vvd file too small: %d bytes, expected at least %d", len(buf), headerSize)
 	}
@@ -64,13 +64,13 @@ func (reader *Reader) Read(stream io.Reader) (*Vvd, error) {
 	}
 
 	// Read fixups
-	fixups, err := internal.ReadSlice[fixup](buf, int64(header.FixupTableStart), int64(header.NumFixups), "fixups")
+	fixups, err := internal.ReadSlice[Fixup](buf, int64(header.FixupTableStart), int64(header.NumFixups), "fixups")
 	if err != nil {
 		return nil, fmt.Errorf("failed to read VVD fixups at offset %d: %w", header.FixupTableStart, err)
 	}
 
-	//Read vertices
-	vertices, err := reader.readVertices(buf, &header)
+	// Read vertices. The most detailed LOD uses every vertex in the file.
+	vertices, err := internal.ReadSlice[Vertex](buf, int64(header.VertexDataStart), int64(header.NumLODVertexes[0]), "vertices")
 	if err != nil {
 		return nil, fmt.Errorf("failed to read VVD vertices at offset %d: %w", header.VertexDataStart, err)
 	}
@@ -91,30 +91,8 @@ func (reader *Reader) Read(stream io.Reader) (*Vvd, error) {
 }
 
 // Reads studiohdr header information
-func (reader *Reader) readHeader(buf []byte) (header, error) {
-	return internal.ReadStruct[header](buf, 0, "header")
-}
-
-// read vertex data
-func (reader *Reader) readVertices(buf []byte, header *header) ([]vertex, error) {
-	vertexSize := int64(binary.Size(vertex{}))
-
-	// Calculate the actual number of vertices stored in the file by using byte offsets
-	// The vertices are stored from VertexDataStart to TangentDataStart
-	// Note: NumLODVertexes represents vertices needed per LOD (for use with fixups),
-	// NOT how many vertices are stored in the file
-	vertexDataLength := int64(header.TangentDataStart) - int64(header.VertexDataStart)
-	if vertexDataLength < 0 {
-		return nil, fmt.Errorf("invalid vertex data range: TangentDataStart=%d < VertexDataStart=%d",
-			header.TangentDataStart, header.VertexDataStart)
-	}
-
-	if vertexDataLength%vertexSize != 0 {
-		return nil, fmt.Errorf("vertex data length %d is not a multiple of vertex size %d",
-			vertexDataLength, vertexSize)
-	}
-
-	return internal.ReadSlice[vertex](buf, int64(header.VertexDataStart), vertexDataLength/vertexSize, "vertices")
+func (reader *Reader) readHeader(buf []byte) (Header, error) {
+	return internal.ReadStruct[Header](buf, 0, "header")
 }
 
 // NewReader returns a new reader

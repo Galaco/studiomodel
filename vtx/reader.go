@@ -44,7 +44,7 @@ func (reader *Reader) Read(stream io.Reader) (*Vtx, error) {
 	reader.buf = buf
 
 	// Validate minimum file size
-	headerSize := binary.Size(header{})
+	headerSize := binary.Size(Header{})
 	if len(reader.buf) < headerSize {
 		return nil, fmt.Errorf("vtx file too small: %d bytes, expected at least %d", len(reader.buf), headerSize)
 	}
@@ -84,23 +84,67 @@ func (reader *Reader) Read(stream io.Reader) (*Vtx, error) {
 		ref.mesh.StripGroups = stripGroups
 	}
 
+	out.MaterialReplacements, err = reader.readMaterialReplacements(&header)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read material replacements: %w", err)
+	}
+
 	return out, nil
 }
 
 // readHeader reads studiohdr header information
-func (reader *Reader) readHeader() (header, error) {
-	return internal.ReadStruct[header](reader.buf, 0, "header")
+func (reader *Reader) readHeader() (Header, error) {
+	return internal.ReadStruct[Header](reader.buf, 0, "header")
+}
+
+// readMaterialReplacements reads each LOD's material replacements
+func (reader *Reader) readMaterialReplacements(header *Header) ([][]MaterialReplacement, error) {
+	if header.MaterialReplacementListOffset == 0 {
+		return nil, nil
+	}
+
+	listStart := int64(header.MaterialReplacementListOffset)
+	listSize := int64(binary.Size(materialReplacementListHeader{}))
+	replacementSize := int64(binary.Size(materialReplacementHeader{}))
+	lists, err := internal.ReadSlice[materialReplacementListHeader](reader.buf, listStart, int64(header.NumLODs), "material replacement lists")
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([][]MaterialReplacement, len(lists))
+	for lod, list := range lists {
+		// Offsets are relative to the list, and names to their replacement
+		replacementStart := listStart + int64(lod)*listSize + int64(list.ReplacementOffset)
+		replacements, err := internal.ReadSlice[materialReplacementHeader](reader.buf, replacementStart, int64(list.NumReplacements), "material replacements")
+		if err != nil {
+			return nil, fmt.Errorf("LOD %d: %w", lod, err)
+		}
+		out[lod] = make([]MaterialReplacement, len(replacements))
+		for i, replacement := range replacements {
+			namePos := replacementStart + int64(i)*replacementSize + int64(replacement.NameOffset)
+			name, err := internal.CString(reader.buf, namePos, 256, "material replacement name")
+			if err != nil {
+				return nil, fmt.Errorf("LOD %d: %w", lod, err)
+			}
+			out[lod][i] = MaterialReplacement{
+				MaterialID: replacement.MaterialID,
+				Name:       name,
+			}
+		}
+	}
+
+	return out, nil
 }
 
 // readMeshes parses body parts, models, LODs and meshes, and returns where each mesh's strip groups are.
 // Counts of zero are valid: a blank bodygroup model has no meshes.
-func (reader *Reader) readMeshes(header *header) (*Vtx, []meshRef, error) {
+func (reader *Reader) readMeshes(header *Header) (*Vtx, []meshRef, error) {
 	bodyPartHeaderSize := int64(binary.Size(bodyPartHeader{}))
 	modelHeaderSize := int64(binary.Size(modelHeader{}))
 	modelLODHeaderSize := int64(binary.Size(modelLODHeader{}))
 	meshHeaderSize := int64(binary.Size(meshHeader{}))
 
-	out := &Vtx{}
+	out := &Vtx{Header: *header}
 	var meshes []meshRef
 
 	bodyPartStart := int64(header.BodyPartOffset)
@@ -142,9 +186,11 @@ func (reader *Reader) readMeshes(header *header) (*Vtx, []meshRef, error) {
 				}
 
 				modelLODOut := &modelOut.LODS[k]
+				modelLODOut.SwitchPoint = modelLODHeader.SwitchPoint
 				modelLODOut.Meshes = make([]Mesh, len(meshHeaders))
 
 				for l, meshHeader := range meshHeaders {
+					modelLODOut.Meshes[l].Flags = meshHeader.Flags
 					meshes = append(meshes, meshRef{
 						mesh:            &modelLODOut.Meshes[l],
 						stripGroupStart: meshStart + int64(l)*meshHeaderSize + int64(meshHeader.StripGroupHeaderOffset),
@@ -194,6 +240,7 @@ func (reader *Reader) readStripGroups(offset int64, num int32, extended bool) ([
 	stripGroups := make([]StripGroup, len(stripGroupHeaders))
 	for m, stripGroupHeader := range stripGroupHeaders {
 		stripGroupPos := offset + int64(m)*stripGroupStride
+		stripGroups[m].Flags = stripGroupHeader.Flags
 
 		stripGroups[m].Vertexes, err = internal.ReadSlice[Vertex](reader.buf, stripGroupPos+int64(stripGroupHeader.VertOffset), int64(stripGroupHeader.NumVerts), "vertices")
 		if err != nil {

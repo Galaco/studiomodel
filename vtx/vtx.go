@@ -2,8 +2,20 @@ package vtx
 
 // Vtx
 type Vtx struct {
+	// Header
+	Header Header
 	// BodyParts
 	BodyParts []BodyPart
+	// MaterialReplacements lists, for each LOD, the materials that LOD swaps in
+	MaterialReplacements [][]MaterialReplacement
+}
+
+// MaterialReplacement replaces one of the mdl's materials at one LOD
+type MaterialReplacement struct {
+	// MaterialID is the index of the replaced material in the mdl's textures
+	MaterialID int16
+	// Name is the replacement material, found the same way as the mdl's texture names
+	Name string
 }
 
 // BodyPart
@@ -22,12 +34,16 @@ type Model struct {
 type ModelLOD struct {
 	// Meshes
 	Meshes []Mesh
+	// SwitchPoint is the screen size at which this LOD is used
+	SwitchPoint float32
 }
 
 // Mesh
 type Mesh struct {
 	// StripGroups
 	StripGroups []StripGroup
+	// Flags are MeshIsTeeth and MeshIsEyes
+	Flags uint8
 }
 
 // StripGroup
@@ -38,10 +54,12 @@ type StripGroup struct {
 	Vertexes []Vertex
 	// Strips
 	Strips []Strip
+	// Flags are the StripGroupIs... constants
+	Flags uint8
 }
 
-// header
-type header struct {
+// Header
+type Header struct {
 	// Version
 	Version int32
 	// VertCacheSize
@@ -94,6 +112,29 @@ type modelLODHeader struct {
 	SwitchPoint float32
 }
 
+// materialReplacementListHeader
+type materialReplacementListHeader struct {
+	// NumReplacements
+	NumReplacements int32
+	// ReplacementOffset
+	ReplacementOffset int32
+}
+
+// materialReplacementHeader
+type materialReplacementHeader struct {
+	// MaterialID
+	MaterialID int16
+	// NameOffset
+	NameOffset int32
+}
+
+const (
+	// MeshIsTeeth
+	MeshIsTeeth = 0x01
+	// MeshIsEyes
+	MeshIsEyes = 0x02
+)
+
 // meshHeader
 type meshHeader struct {
 	// NumStripGroups
@@ -137,6 +178,13 @@ type stripGroupHeader struct {
 	Flags uint8
 	//_     [3]byte
 }
+
+const (
+	// StripIsTriList means a strip's indices form a list of triangles
+	StripIsTriList = 0x01
+	// StripIsTriStrip means a strip's indices form a triangle strip
+	StripIsTriStrip = 0x02
+)
 
 // Strip
 type Strip struct {

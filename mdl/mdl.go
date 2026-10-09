@@ -218,12 +218,16 @@ type Studiohdr struct {
 // BodyPartData contains a parsed body part with its models
 type BodyPartData struct {
 	Header BodyPart
+	// Name
+	Name   string
 	Models []ModelData
 }
 
 // ModelData contains a parsed model with its meshes
 type ModelData struct {
 	Header Model
+	// Name
+	Name   string
 	Meshes []Mesh
 }
 
@@ -231,52 +235,95 @@ type ModelData struct {
 type Mdl struct {
 	// Header
 	Header Studiohdr
+	// Name is the model's name from the header
+	Name string
+	// SurfaceProp is the model's surface property
+	SurfaceProp string
+	// KeyValues is the model's key-values text
+	KeyValues string
 	// Bones
 	Bones []Bone
+	// BoneNames are the names of Bones
+	BoneNames []string
+	// BoneSurfaceProps are the surface properties of Bones
+	BoneSurfaceProps []string
 	// BoneControllers
 	BoneControllers []BoneController
 	// HitboxSet
 	HitboxSet []HitboxSet
+	// HitboxSetNames are the names of HitboxSet
+	HitboxSetNames []string
 	// AnimDescs
 	AnimDescs []AnimDesc
+	// AnimDescNames are the names of AnimDescs
+	AnimDescNames []string
 	// SequenceDescs
 	SequenceDescs []SequenceDesc
+	// SequenceLabels are the names of SequenceDescs
+	SequenceLabels []string
+	// SequenceActivityNames are the activities of SequenceDescs
+	SequenceActivityNames []string
 	// Textures
 	Textures []Texture
 	// TextureNames
 	TextureNames []string //mapped to Textures above.
 	// TextureDirs
 	TextureDirs []string
+	// SkinFamilies holds, for each skin, the texture index to use for each of a mesh's materials (Mesh.Material)
+	SkinFamilies [][]int16
 	// BodyParts - parsed body part hierarchy
 	// Added to expose body part/model/mesh hierarchy with material indices
 	BodyParts []BodyPartData
-
-	// Some skin stuff here
-	// @TODO there may be latter properties
 }
 
-// GetMaterialIndexForMesh returns the material index for a specific mesh
+// GetMaterialIndexForMesh returns the material of a specific mesh: its slot in the skin families, not a texture.
 // bodyPartIdx, modelIdx, and meshIdx correspond to the VTX hierarchy indices
+//
+// Deprecated: the result is only a texture index when skin 0 maps every slot to itself. Use TextureIndexForMesh.
 func (mdl *Mdl) GetMaterialIndexForMesh(bodyPartIdx, modelIdx, meshIdx int) (int32, error) {
-	if bodyPartIdx >= len(mdl.BodyParts) {
+	if bodyPartIdx < 0 || bodyPartIdx >= len(mdl.BodyParts) {
 		return 0, fmt.Errorf("body part index %d out of range (have %d body parts)", bodyPartIdx, len(mdl.BodyParts))
 	}
 
 	bodyPart := &mdl.BodyParts[bodyPartIdx]
-	if modelIdx >= len(bodyPart.Models) {
+	if modelIdx < 0 || modelIdx >= len(bodyPart.Models) {
 		return 0, fmt.Errorf("model index %d out of range in body part %d (have %d models)", modelIdx, bodyPartIdx, len(bodyPart.Models))
 	}
 
 	model := &bodyPart.Models[modelIdx]
-	if meshIdx >= len(model.Meshes) {
+	if meshIdx < 0 || meshIdx >= len(model.Meshes) {
 		return 0, fmt.Errorf("mesh index %d out of range in model %d (have %d meshes)", meshIdx, modelIdx, len(model.Meshes))
 	}
 
 	return model.Meshes[meshIdx].Material, nil
 }
 
-// GetAllMaterialIndices returns a flat list of all material indices used by this model
-// Useful for preloading materials
+// TextureIndexForMesh returns the index into Textures and TextureNames of the texture a mesh uses with a skin.
+// bodyPartIdx, modelIdx, and meshIdx correspond to the VTX hierarchy indices
+func (mdl *Mdl) TextureIndexForMesh(skin, bodyPartIdx, modelIdx, meshIdx int) (int32, error) {
+	material, err := mdl.GetMaterialIndexForMesh(bodyPartIdx, modelIdx, meshIdx)
+	if err != nil {
+		return 0, err
+	}
+	return mdl.TextureIndex(skin, material)
+}
+
+// TextureIndex returns the index into Textures and TextureNames that a mesh material (Mesh.Material) uses with a skin
+func (mdl *Mdl) TextureIndex(skin int, material int32) (int32, error) {
+	if skin < 0 || skin >= len(mdl.SkinFamilies) {
+		return 0, fmt.Errorf("skin %d out of range (have %d skins)", skin, len(mdl.SkinFamilies))
+	}
+	family := mdl.SkinFamilies[skin]
+	if material < 0 || int(material) >= len(family) {
+		return 0, fmt.Errorf("material %d out of range (skin %d has %d)", material, skin, len(family))
+	}
+	return int32(family[material]), nil
+}
+
+// GetAllMaterialIndices returns a flat list of all mesh materials used by this model
+//
+// Deprecated: like GetMaterialIndexForMesh these are skin slots, not textures. To preload materials, load every
+// entry of TextureNames.
 func (mdl *Mdl) GetAllMaterialIndices() []int32 {
 	indices := make([]int32, 0)
 	for _, bodyPart := range mdl.BodyParts {

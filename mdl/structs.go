@@ -298,38 +298,26 @@ type Model struct {
 	// MeshIndex - byte offset from start of this struct to first Mesh
 	MeshIndex int32
 
-	// NumVertices - total unique vertices in this model
+	// NumVertices - unique vertices in this model
 	NumVertices int32
-	// VertexIndex - offset to vertex data (relative to model start)
+	// VertexIndex - byte offset of this model's first vertex in the vvd's vertex data (48 bytes per vertex)
 	VertexIndex int32
-	// VertexInfoIndex - offset to vertex bone info
-	VertexInfoIndex int32
+	// TangentsIndex - byte offset of this model's first tangent in the vvd's tangent data (16 bytes per tangent)
+	TangentsIndex int32
 
-	// NumNormals - total normals
-	NumNormals int32
-	// NormalIndex - offset to normal data
-	NormalIndex int32
-	// NormalInfoIndex - offset to normal bone info
-	NormalInfoIndex int32
+	// NumAttachments
+	NumAttachments int32
+	// AttachmentIndex
+	AttachmentIndex int32
 
-	// NumGroups - number of deformation groups
-	NumGroups int32
-	// GroupIndex - offset to groups
-	GroupIndex int32
+	// NumEyeballs
+	NumEyeballs int32
+	// EyeballIndex - byte offset from start of this struct to first eyeball
+	EyeballIndex int32
 
-	// TEMPORARY: Padding to match actual C struct size (148 bytes total)
-	// We're missing 36 bytes (9 int32 fields) after GroupIndex
-	// These need to be identified from Source SDK headers
-	Unknown1 int32 // Offset 112
-	Unknown2 int32 // Offset 116
-	Unknown3 int32 // Offset 120
-	Unknown4 int32 // Offset 124
-	Unknown5 int32 // Offset 128
-	Unknown6 int32 // Offset 132
-	Unknown7 int32 // Offset 136
-	Unknown8 int32 // Offset 140
-	Unknown9 int32 // Offset 144
-	// Total: 148 bytes
+	// vertex and tangent data pointers, set by the engine at load time
+	_ [2]int32
+	_ [8]int32
 }
 
 // Mesh represents a mesh within a model (corresponds to a single material)
@@ -343,7 +331,7 @@ type Mesh struct {
 
 	// NumVertices - number of unique vertices in this mesh
 	NumVertices int32
-	// VertexOffset - offset to vertex indices (relative to model vertex data)
+	// VertexOffset - index of this mesh's first vertex within its model's vertices
 	VertexOffset int32
 
 	// NumFlexes - number of flex controllers

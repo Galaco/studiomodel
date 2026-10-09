@@ -10,6 +10,7 @@ import (
 	"testing"
 	"unicode"
 
+	"github.com/galaco/studiomodel"
 	"github.com/galaco/studiomodel/internal"
 	"github.com/galaco/studiomodel/mdl"
 	"github.com/galaco/studiomodel/phy"
@@ -25,6 +26,7 @@ func TestRealModels(t *testing.T) {
 		t.Skip("set STUDIOMODEL_TESTDATA to a folder of models to run")
 	}
 
+	var windings windingStats
 	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -34,16 +36,26 @@ func TestRealModels(t *testing.T) {
 		}
 		name, _ := filepath.Rel(dir, path)
 		t.Run(name, func(t *testing.T) {
-			checkRealModel(t, strings.TrimSuffix(path, filepath.Ext(path)))
+			checkRealModel(t, strings.TrimSuffix(path, filepath.Ext(path)), &windings)
 		})
 		return nil
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	// Some assets ship normals that disagree with their faces, but if many LODs do, vertices are being mismatched
+	if windings.lods > 0 && float64(windings.mismatched) > 0.01*float64(windings.lods) {
+		t.Errorf("%d of %d LODs have triangles that disagree with their vertex normals", windings.mismatched, windings.lods)
+	}
 }
 
-func checkRealModel(t *testing.T, base string) {
+// windingStats counts LODs whose triangles disagree with their vertex normals
+type windingStats struct {
+	lods, mismatched int
+}
+
+func checkRealModel(t *testing.T, base string, windings *windingStats) {
 	buf, err := os.ReadFile(base + ".mdl")
 	if err != nil {
 		t.Fatal(err)
@@ -58,10 +70,20 @@ func checkRealModel(t *testing.T, base string) {
 	for i, bone := range m.Bones {
 		offset := int64(m.Header.BoneOffset) + int64(i)*boneSize + int64(bone.NameIndex)
 		name, err := internal.CString(buf, offset, 256, "bone name")
-		if err != nil || name == "" || strings.IndexFunc(name, func(r rune) bool { return !unicode.IsPrint(r) }) >= 0 {
-			t.Errorf("mdl bone %d name: got %q, err %v", i, name, err)
+		if err != nil || name == "" || strings.IndexFunc(name, func(r rune) bool { return !unicode.IsPrint(r) }) >= 0 || name != m.BoneNames[i] {
+			t.Errorf("mdl bone %d name: got %q (%q), err %v", i, name, m.BoneNames[i], err)
 		}
 	}
+	for skin, family := range m.SkinFamilies {
+		for slot, texture := range family {
+			if texture < 0 || int(texture) >= len(m.TextureNames) {
+				t.Errorf("mdl skin %d slot %d: texture %d of %d", skin, slot, texture, len(m.TextureNames))
+			}
+		}
+	}
+
+	model := studiomodel.NewStudioModel(base)
+	model.AddMdl(m)
 
 	if data, err := readFirst(base, ".dx90.vtx", ".vtx", ".dx80.vtx", ".sw.vtx"); err == nil {
 		v, err := vtx.ReadFromStream(bytes.NewReader(data))
@@ -69,12 +91,16 @@ func checkRealModel(t *testing.T, base string) {
 			t.Errorf("vtx: %v", err)
 		} else {
 			checkVtxMatchesMdl(t, v, m)
+			model.AddVtx(v)
 		}
 	}
 
 	if data, err := os.ReadFile(base + ".vvd"); err == nil {
-		if _, err := vvd.ReadFromStream(bytes.NewReader(data)); err != nil {
+		v, err := vvd.ReadFromStream(bytes.NewReader(data))
+		if err != nil {
 			t.Errorf("vvd: %v", err)
+		} else {
+			model.AddVvd(v)
 		}
 	}
 
@@ -84,6 +110,61 @@ func checkRealModel(t *testing.T, base string) {
 			t.Errorf("phy: %v", err)
 		} else {
 			checkPhy(t, p)
+		}
+	}
+
+	// The engine rejects a vvd or vtx from another compile. Some shipped models do have a mismatched phy, so it is
+	// not checked.
+	if err := model.Validate(); err != nil {
+		t.Error(err)
+	}
+
+	if model.Vvd != nil && model.Vtx != nil {
+		checkLODs(t, model, windings)
+	}
+}
+
+// checkLODs builds every LOD with every skin. Triangles that use the wrong vertices face random ways, whereas Source
+// winds triangles clockwise against their vertex normals.
+func checkLODs(t *testing.T, model *studiomodel.StudioModel, windings *windingStats) {
+	for lod := range int(model.Vtx.Header.NumLODs) {
+		for skin := range len(model.Mdl.SkinFamilies) {
+			geometry, err := model.BuildLOD(lod, skin)
+			if err != nil {
+				t.Errorf("LOD %d skin %d: %v", lod, skin, err)
+				continue
+			}
+			if skin != 0 {
+				continue
+			}
+
+			against, total := 0, 0
+			for _, mesh := range geometry.Meshes {
+				for i := 0; i+2 < len(mesh.Indices); i += 3 {
+					a, b, c := geometry.Vertices[mesh.Indices[i]], geometry.Vertices[mesh.Indices[i+1]], geometry.Vertices[mesh.Indices[i+2]]
+					face := b.Position.Sub(a.Position).Cross(c.Position.Sub(a.Position))
+					if face.Len() < 1e-6 {
+						continue
+					}
+					total++
+					if face.Dot(a.Normal.Add(b.Normal).Add(c.Normal)) < 0 {
+						against++
+					}
+				}
+			}
+			if total == 0 {
+				continue
+			}
+			windings.lods++
+			if float64(against) < 0.8*float64(total) {
+				windings.mismatched++
+				// Fixups are where vertex order most easily goes wrong, so models with them must not mismatch
+				if len(model.Vvd.Fixups) > 0 {
+					t.Errorf("LOD %d: only %d of %d triangles wind against their vertex normals", lod, against, total)
+				} else {
+					t.Logf("LOD %d: only %d of %d triangles wind against their vertex normals", lod, against, total)
+				}
+			}
 		}
 	}
 }
