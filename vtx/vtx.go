@@ -186,8 +186,8 @@ const (
 	StripIsTriStrip = 0x02
 )
 
-// Strip
-type Strip struct {
+// stripHeader
+type stripHeader struct {
 	// NumIndices
 	NumIndices int32
 	// IndexOffset
@@ -209,6 +209,42 @@ type Strip struct {
 	NumBoneStateChanges int32
 	//BoneStateChangeOffset
 	BoneStateChangeOffset int32
+}
+
+// Strip is a run of its strip group's indices drawn in one call, with the hardware bone palette it needs
+type Strip struct {
+	// NumIndices
+	NumIndices int32
+	// IndexOffset - first of the strip group's indices that this strip uses
+	IndexOffset int32
+
+	// NumVerts
+	NumVerts int32
+	// VertOffset - first of the strip group's vertices that this strip uses
+	VertOffset int32
+
+	// NumBones
+	NumBones int16
+
+	// Flags are StripIsTriList or StripIsTriStrip
+	Flags uint8
+
+	//NumBoneStateChanges
+	NumBoneStateChanges int32
+	//BoneStateChangeOffset
+	BoneStateChangeOffset int32
+
+	// BoneStateChanges set which model bone each hardware bone slot holds while drawing this strip.
+	// Hardware-skinned vertices' BoneID values are those slots.
+	BoneStateChanges []BoneStateChange
+}
+
+// BoneStateChange
+type BoneStateChange struct {
+	// HardwareID - hardware bone slot
+	HardwareID int32
+	// NewBoneID - model bone to put in the slot
+	NewBoneID int32
 }
 
 // Vertex

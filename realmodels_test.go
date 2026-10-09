@@ -3,7 +3,9 @@ package studiomodel_test
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"io/fs"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -82,6 +84,8 @@ func checkRealModel(t *testing.T, base string, windings *windingStats) {
 		}
 	}
 
+	checkRigging(t, m)
+
 	model := studiomodel.NewStudioModel(base)
 	model.AddMdl(m)
 
@@ -91,6 +95,7 @@ func checkRealModel(t *testing.T, base string, windings *windingStats) {
 			t.Errorf("vtx: %v", err)
 		} else {
 			checkVtxMatchesMdl(t, v, m)
+			checkBoneStateChanges(t, v, m)
 			model.AddVtx(v)
 		}
 	}
@@ -190,12 +195,90 @@ func checkVtxMatchesMdl(t *testing.T, v *vtx.Vtx, m *mdl.Mdl) {
 	}
 }
 
+// checkRigging checks that hitboxes, attachments, IK links and procedural bones refer to bones that exist
+func checkRigging(t *testing.T, m *mdl.Mdl) {
+	bone := func(what string, i int32) {
+		if i < 0 || int(i) >= len(m.Bones) {
+			t.Errorf("%s: bone %d of %d", what, i, len(m.Bones))
+		}
+	}
+	for i, set := range m.Hitboxes {
+		for j, hitbox := range set {
+			bone(fmt.Sprintf("hitbox set %d hitbox %d", i, j), hitbox.Bone)
+		}
+	}
+	for i, attachment := range m.Attachments {
+		bone(fmt.Sprintf("attachment %d (%s)", i, m.AttachmentNames[i]), attachment.LocalBone)
+	}
+	for i, chain := range m.IKChains {
+		for j, link := range chain.Links {
+			bone(fmt.Sprintf("IK chain %d link %d", i, j), link.Bone)
+		}
+	}
+	for _, proc := range m.ProceduralBones {
+		if proc.Jiggle != nil && (proc.Jiggle.Length <= 0 || math.IsInf(float64(proc.Jiggle.Length), 0)) {
+			t.Errorf("jiggle bone %s: length %v", m.BoneNames[proc.Bone], proc.Jiggle.Length)
+		}
+	}
+}
+
+// checkBoneStateChanges checks that strips only put bones that exist into hardware slots
+func checkBoneStateChanges(t *testing.T, v *vtx.Vtx, m *mdl.Mdl) {
+	for _, bodyPart := range v.BodyParts {
+		for _, model := range bodyPart.Models {
+			for _, lod := range model.LODS {
+				for _, mesh := range lod.Meshes {
+					for _, group := range mesh.StripGroups {
+						for _, strip := range group.Strips {
+							for _, change := range strip.BoneStateChanges {
+								if change.NewBoneID < 0 || int(change.NewBoneID) >= len(m.Bones) {
+									t.Errorf("vtx bone state change: bone %d of %d", change.NewBoneID, len(m.Bones))
+									return
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
 // checkPhy checks that each ledge's own size field agrees with what the reader found: the ledge header, its
 // triangles, and the distinct points they use, 16 bytes each
 func checkPhy(t *testing.T, p *phy.Phy) {
 	if len(p.Solids) != int(p.Header.SolidCount) {
 		t.Errorf("phy has %d solids, header says %d", len(p.Solids), p.Header.SolidCount)
 	}
+
+	// The key-values text describes each solid once, and constrains solids that exist
+	solids, err := p.SolidInfos()
+	if err != nil {
+		t.Errorf("phy solids: %v", err)
+	}
+	indices := map[int]bool{}
+	for _, solid := range solids {
+		if solid.Index < 0 || solid.Index >= len(p.Solids) || indices[solid.Index] {
+			t.Errorf("phy solid %q: index %d of %d, or repeated", solid.Name, solid.Index, len(p.Solids))
+		}
+		indices[solid.Index] = true
+	}
+	if len(solids) != len(p.Solids) {
+		t.Errorf("phy text describes %d solids, file has %d", len(solids), len(p.Solids))
+	}
+	constraints, err := p.RagdollConstraints()
+	if err != nil {
+		t.Errorf("phy ragdoll constraints: %v", err)
+	}
+	for _, c := range constraints {
+		if c.Parent < 0 || c.Parent >= len(p.Solids) || c.Child < 0 || c.Child >= len(p.Solids) {
+			t.Errorf("phy ragdoll constraint %d -> %d: of %d solids", c.Parent, c.Child, len(p.Solids))
+		}
+	}
+	if _, err := p.CollisionPairs(); err != nil {
+		t.Errorf("phy collision pairs: %v", err)
+	}
+
 	for i, solid := range p.Solids {
 		for j, ledge := range solid.Ledges {
 			points := map[uint16]bool{}

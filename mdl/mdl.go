@@ -235,7 +235,7 @@ type ModelData struct {
 type Mdl struct {
 	// Header
 	Header Studiohdr
-	// Name is the model's name from the header
+	// Name is the model's name: the secondary header's full name when there is one, else the main header's
 	Name string
 	// SurfaceProp is the model's surface property
 	SurfaceProp string
@@ -274,6 +274,33 @@ type Mdl struct {
 	// BodyParts - parsed body part hierarchy
 	// Added to expose body part/model/mesh hierarchy with material indices
 	BodyParts []BodyPartData
+
+	// Hitboxes holds the hitboxes of each of HitboxSet
+	Hitboxes [][]Hitbox
+	// HitboxNames are the names of Hitboxes; most hitboxes are unnamed
+	HitboxNames [][]string
+	// Attachments
+	Attachments []Attachment
+	// AttachmentNames are the names of Attachments
+	AttachmentNames []string
+	// PoseParameters
+	PoseParameters []PoseParameter
+	// PoseParameterNames are the names of PoseParameters
+	PoseParameterNames []string
+	// ProceduralBones are the rules that move procedural bones, in bone order
+	ProceduralBones []ProceduralBone
+	// IKChains
+	IKChains []IKChainData
+	// IKLocks
+	IKLocks []IKLock
+	// IncludeModels are other models whose sequences and animations this model uses
+	IncludeModels []IncludeModel
+	// Header2 is the secondary header, when there is one
+	Header2 *Studiohdr2
+	// SrcBoneTransforms
+	SrcBoneTransforms []SrcBoneTransform
+	// SrcBoneTransformNames are the bone names of SrcBoneTransforms
+	SrcBoneTransformNames []string
 }
 
 // GetMaterialIndexForMesh returns the material of a specific mesh: its slot in the skin families, not a texture.

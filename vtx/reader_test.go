@@ -35,6 +35,7 @@ func buildVtx(extended bool) []byte {
 		{{3, 0, 3, 0}, {3, 3, 3, 3}},
 	}
 	headerPos := make([]int, len(stripGroups))
+	lastStripPos := 0
 	for g, strips := range stripGroups {
 		headerPos[g] = b.Pos()
 		n := int32(3 * len(strips))
@@ -55,10 +56,16 @@ func buildVtx(extended bool) []byte {
 		}
 		b.SetI32(pos+20, int32(b.Pos()-pos))
 		for _, s := range strips {
+			lastStripPos = b.Pos()
 			// numIndices, indexOffset, numVerts, vertOffset, numBones, flags, numBoneStateChanges, boneStateChangeOffset
 			b.I32(s[0], s[1], s[2], s[3]).I16(1).U8(StripIsTriList).I32(0, 0).Zero(extra)
 		}
 	}
+
+	// The last strip puts model bone 7 in hardware bone slot 0: numBoneStateChanges, boneStateChangeOffset
+	b.SetI32(lastStripPos+19, 1)
+	b.SetI32(lastStripPos+23, int32(b.Pos()-lastStripPos))
+	b.I32(0, 7)
 
 	// The one LOD's material replacements: material 2 becomes models/test/lod1
 	b.SetI32(24, int32(b.Pos()))
@@ -81,7 +88,7 @@ func TestStructSizes(t *testing.T) {
 		"ModelLODHeader_t":   {modelLODHeader{}, 12},
 		"MeshHeader_t":       {meshHeader{}, 9},
 		"StripGroupHeader_t": {stripGroupHeader{}, 25},
-		"StripHeader_t":      {Strip{}, 27},
+		"StripHeader_t":      {stripHeader{}, 27},
 		"Vertex_t":           {Vertex{}, 9},
 	} {
 		if got := binary.Size(c.value); got != c.want {
@@ -130,6 +137,8 @@ func TestRead(t *testing.T) {
 			}
 			if len(second.Strips) != 2 || second.Strips[1].IndexOffset != 3 || second.Strips[1].VertOffset != 3 {
 				t.Errorf("strip group 1 strips: got %+v", second.Strips)
+			} else if changes := second.Strips[1].BoneStateChanges; len(changes) != 1 || changes[0] != (BoneStateChange{HardwareID: 0, NewBoneID: 7}) {
+				t.Errorf("strip group 1 strip 1 bone state changes: got %+v", changes)
 			}
 		})
 	}

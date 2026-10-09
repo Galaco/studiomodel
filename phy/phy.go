@@ -34,7 +34,8 @@ type Solid struct {
 	// Ledges are the convex pieces of this solid
 	Ledges []Ledge
 	// Vertices are shared by all ledges of this solid, and indexed by their triangles.
-	// They are in IVP space (metres, with axes that differ from Source), not Source units.
+	// They are in IVP space (metres, with axes that differ from Source); ToSource converts them. Each solid is in the
+	// space of the bone it follows (see SolidInfos), which for most props is model space.
 	Vertices []mgl32.Vec4
 }
 

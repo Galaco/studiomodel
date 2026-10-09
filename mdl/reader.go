@@ -66,11 +66,11 @@ func (reader *Reader) Read(stream io.Reader) (*Mdl, error) {
 	if err != nil {
 		return nil, err
 	}
-	boneNames, err := readNames(buf, header.BoneOffset, bones, func(b Bone) int32 { return b.NameIndex }, "bone")
+	boneNames, err := readNames(buf, int64(header.BoneOffset), bones, func(b Bone) int32 { return b.NameIndex }, "bone")
 	if err != nil {
 		return nil, err
 	}
-	boneSurfaceProps, err := readNames(buf, header.BoneOffset, bones, func(b Bone) int32 { return b.SurfacePropIndex }, "bone surface prop")
+	boneSurfaceProps, err := readNames(buf, int64(header.BoneOffset), bones, func(b Bone) int32 { return b.SurfacePropIndex }, "bone surface prop")
 	if err != nil {
 		return nil, err
 	}
@@ -84,7 +84,7 @@ func (reader *Reader) Read(stream io.Reader) (*Mdl, error) {
 	if err != nil {
 		return nil, err
 	}
-	hitboxSetNames, err := readNames(buf, header.HitboxOffset, hitboxSets, func(h HitboxSet) int32 { return h.NameIndex }, "hitbox set")
+	hitboxSetNames, err := readNames(buf, int64(header.HitboxOffset), hitboxSets, func(h HitboxSet) int32 { return h.NameIndex }, "hitbox set")
 	if err != nil {
 		return nil, err
 	}
@@ -93,7 +93,7 @@ func (reader *Reader) Read(stream io.Reader) (*Mdl, error) {
 	if err != nil {
 		return nil, err
 	}
-	animDescNames, err := readNames(buf, header.LocalAnimationOffset, animDescs, func(a AnimDesc) int32 { return a.NameIndex }, "animation")
+	animDescNames, err := readNames(buf, int64(header.LocalAnimationOffset), animDescs, func(a AnimDesc) int32 { return a.NameIndex }, "animation")
 	if err != nil {
 		return nil, err
 	}
@@ -102,11 +102,11 @@ func (reader *Reader) Read(stream io.Reader) (*Mdl, error) {
 	if err != nil {
 		return nil, err
 	}
-	sequenceLabels, err := readNames(buf, header.LocalSequenceOffset, sequenceDescs, func(s SequenceDesc) int32 { return s.LabelIndex }, "sequence")
+	sequenceLabels, err := readNames(buf, int64(header.LocalSequenceOffset), sequenceDescs, func(s SequenceDesc) int32 { return s.LabelIndex }, "sequence")
 	if err != nil {
 		return nil, err
 	}
-	sequenceActivityNames, err := readNames(buf, header.LocalSequenceOffset, sequenceDescs, func(s SequenceDesc) int32 { return s.ActivityNameIndex }, "sequence activity")
+	sequenceActivityNames, err := readNames(buf, int64(header.LocalSequenceOffset), sequenceDescs, func(s SequenceDesc) int32 { return s.ActivityNameIndex }, "sequence activity")
 	if err != nil {
 		return nil, err
 	}
@@ -116,7 +116,7 @@ func (reader *Reader) Read(stream io.Reader) (*Mdl, error) {
 		return nil, err
 	}
 
-	textureNames, err := readNames(buf, header.TextureOffset, textures, func(t Texture) int32 { return t.NameIndex }, "texture")
+	textureNames, err := readNames(buf, int64(header.TextureOffset), textures, func(t Texture) int32 { return t.NameIndex }, "texture")
 	if err != nil {
 		return nil, err
 	}
@@ -151,7 +151,7 @@ func (reader *Reader) Read(stream io.Reader) (*Mdl, error) {
 		return nil, fmt.Errorf("failed to parse body parts: %w", err)
 	}
 
-	return &Mdl{
+	out := &Mdl{
 		Header:                *header,
 		Name:                  fixedString(header.Name[:]),
 		SurfaceProp:           surfaceProp,
@@ -172,12 +172,18 @@ func (reader *Reader) Read(stream io.Reader) (*Mdl, error) {
 		TextureDirs:           textureDirs,
 		SkinFamilies:          skinFamilies,
 		BodyParts:             bodyParts,
-	}, nil
+	}
+
+	if err := readRigging(buf, header, out); err != nil {
+		return nil, err
+	}
+
+	return out, nil
 }
 
 // readNames reads a name for each of items, which are stored back to back from start. Each name's offset, from
 // nameIndex, is relative to its item; an offset of 0 means no name.
-func readNames[T any](buf []byte, start int32, items []T, nameIndex func(T) int32, what string) ([]string, error) {
+func readNames[T any](buf []byte, start int64, items []T, nameIndex func(T) int32, what string) ([]string, error) {
 	var zero T
 	size := int64(binary.Size(zero))
 	names := make([]string, len(items))
@@ -186,7 +192,7 @@ func readNames[T any](buf []byte, start int32, items []T, nameIndex func(T) int3
 		if index == 0 {
 			continue
 		}
-		name, err := internal.CString(buf, int64(start)+int64(i)*size+int64(index), 256, fmt.Sprintf("%s %d name", what, i))
+		name, err := internal.CString(buf, start+int64(i)*size+int64(index), 256, fmt.Sprintf("%s %d name", what, i))
 		if err != nil {
 			return nil, err
 		}
@@ -254,7 +260,7 @@ func (reader *Reader) readBodyParts(buf []byte, header *Studiohdr) ([]BodyPartDa
 		return nil, err
 	}
 
-	bodyPartNames, err := readNames(buf, header.BodypartOffset, bodyPartHeaders, func(b BodyPart) int32 { return b.NameIndex }, "body part")
+	bodyPartNames, err := readNames(buf, int64(header.BodypartOffset), bodyPartHeaders, func(b BodyPart) int32 { return b.NameIndex }, "body part")
 	if err != nil {
 		return nil, err
 	}

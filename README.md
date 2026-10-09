@@ -18,14 +18,15 @@ Tested against Counter Strike Source and Counter Strike Global Offensive
 #### Features
 
 * VVD reader is stable. `VerticesForRootLOD` applies fixups, giving vertices in the order mdl and vtx indices expect
-* VTX reader reads all LODs, with their switch points, mesh and strip group flags, and material replacements. The
-larger strip headers used by MDL v49 are detected automatically, or can be selected with
+* VTX reader reads all LODs, with their switch points, mesh and strip group flags, bone state changes and material
+replacements. The larger strip headers used by MDL v49 are detected automatically, or can be selected with
 `vtx.ReadFromStreamWithMDLVersion`
-* MDL reader is usable, currently incomplete: it reads the header, bones, bone controllers, hitbox sets, animation and
-sequence descriptions, textures, skins and the body part / model / mesh tree, with their names. Hitboxes,
-attachments, animation data and most other sections are not read yet
-* PHY reader reads every solid and its convex pieces. The key-values text that follows them is exposed as a string
-but not parsed yet
+* MDL reader is usable, currently incomplete: it reads the header and secondary header, bones and their procedural
+rules (axis and quaternion interpolation, aim-at, jiggle), bone controllers, hitboxes, attachments, pose parameters,
+IK chains and locks, included models, animation and sequence descriptions, textures, skins and the body part / model /
+mesh tree, with their names. Animation data, sequence details, flexes and eyes are not read yet
+* PHY reader reads every solid and its convex pieces, and parses the key-values text that follows them into solid
+descriptions, ragdoll constraints and collision pairs. `phy.ToSource` converts vertices from IVP to Source space
 * `StudioModel.BuildLOD` combines the mdl, vvd and vtx into triangle lists per mesh for a LOD and skin, and
 `StudioModel.Validate` checks the files' checksums match
 

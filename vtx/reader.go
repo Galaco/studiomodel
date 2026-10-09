@@ -226,7 +226,7 @@ func (reader *Reader) detectExtendedHeaders(meshes []meshRef) bool {
 // extended selects the MDL v49 header layout.
 func (reader *Reader) readStripGroups(offset int64, num int32, extended bool) ([]StripGroup, error) {
 	stripGroupStride := int64(binary.Size(stripGroupHeader{}))
-	stripStride := int64(binary.Size(Strip{}))
+	stripStride := int64(binary.Size(stripHeader{}))
 	if extended {
 		stripGroupStride += topologyFieldsSize
 		stripStride += topologyFieldsSize
@@ -252,16 +252,36 @@ func (reader *Reader) readStripGroups(offset int64, num int32, extended bool) ([
 			return nil, fmt.Errorf("failed to read indices for strip group %d: %w", m, err)
 		}
 
-		stripGroups[m].Strips, err = internal.ReadStrided[Strip](reader.buf, stripGroupPos+int64(stripGroupHeader.StripOffset), int64(stripGroupHeader.NumStrips), stripStride, "strips")
+		stripsPos := stripGroupPos + int64(stripGroupHeader.StripOffset)
+		stripHeaders, err := internal.ReadStrided[stripHeader](reader.buf, stripsPos, int64(stripGroupHeader.NumStrips), stripStride, "strips")
 		if err != nil {
 			return nil, fmt.Errorf("failed to read strips for strip group %d: %w", m, err)
 		}
 
-		// Strips index into their strip group's indices and vertices
-		for s, strip := range stripGroups[m].Strips {
+		stripGroups[m].Strips = make([]Strip, len(stripHeaders))
+		for s, strip := range stripHeaders {
+			// Strips index into their strip group's indices and vertices
 			if !withinRange(strip.IndexOffset, strip.NumIndices, stripGroupHeader.NumIndices) ||
 				!withinRange(strip.VertOffset, strip.NumVerts, stripGroupHeader.NumVerts) {
 				return nil, fmt.Errorf("strip %d of strip group %d lies outside the strip group's indices or vertices", s, m)
+			}
+
+			// BoneStateChangeOffset is relative to the start of this strip
+			changes, err := internal.ReadSlice[BoneStateChange](reader.buf, stripsPos+int64(s)*stripStride+int64(strip.BoneStateChangeOffset), int64(strip.NumBoneStateChanges), "bone state changes")
+			if err != nil {
+				return nil, fmt.Errorf("failed to read bone state changes for strip %d of strip group %d: %w", s, m, err)
+			}
+
+			stripGroups[m].Strips[s] = Strip{
+				NumIndices:            strip.NumIndices,
+				IndexOffset:           strip.IndexOffset,
+				NumVerts:              strip.NumVerts,
+				VertOffset:            strip.VertOffset,
+				NumBones:              strip.NumBones,
+				Flags:                 strip.Flags,
+				NumBoneStateChanges:   strip.NumBoneStateChanges,
+				BoneStateChangeOffset: strip.BoneStateChangeOffset,
+				BoneStateChanges:      changes,
 			}
 		}
 	}
