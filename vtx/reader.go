@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"slices"
 
 	"github.com/galaco/studiomodel/internal"
 )
@@ -71,13 +72,13 @@ func (reader *Reader) Read(stream io.Reader) (*Vtx, error) {
 		return nil, err
 	}
 
-	extended := reader.MDLVersion >= ExtendedHeaderMDLVersion
+	out.StripHeaders = StripHeaderLayout{Extended: reader.MDLVersion >= ExtendedHeaderMDLVersion, Source: LayoutFromMDLVersion}
 	if reader.MDLVersion == 0 {
-		extended = reader.detectExtendedHeaders(meshes)
+		out.StripHeaders = reader.detectStripHeaderLayout(meshes)
 	}
 
 	for _, ref := range meshes {
-		stripGroups, err := reader.readStripGroups(ref.stripGroupStart, ref.numStripGroups, extended)
+		stripGroups, err := reader.readStripGroups(ref.stripGroupStart, ref.numStripGroups, out.StripHeaders.Extended)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read strip groups for mesh %d, LOD %d, model %d, body part %d: %w", ref.index, ref.lod, ref.model, ref.bodyPart, err)
 		}
@@ -208,18 +209,26 @@ func (reader *Reader) readMeshes(header *Header) (*Vtx, []meshRef, error) {
 	return out, meshes, nil
 }
 
-// detectExtendedHeaders reports whether strip group and strip headers use the MDL v49 layout. The layouts only
-// differ from the second strip group or strip of a mesh onwards, so the first mesh that parses under exactly one
-// layout decides. When no mesh does, the layouts read identically and either is correct.
-func (reader *Reader) detectExtendedHeaders(meshes []meshRef) bool {
+// detectStripHeaderLayout works out whether strip group and strip headers use the MDL v49 layout. The layouts only
+// differ from the second strip group or strip of a mesh onwards, so the first mesh that reads correctly under exactly
+// one layout decides. Without one, the older layout is used: if no mesh has a second strip group or strip, both read
+// identically; otherwise the choice is ambiguous.
+func (reader *Reader) detectStripHeaderLayout(meshes []meshRef) StripHeaderLayout {
+	ambiguous := false
 	for _, ref := range meshes {
-		_, errBase := reader.readStripGroups(ref.stripGroupStart, ref.numStripGroups, false)
+		groups, errBase := reader.readStripGroups(ref.stripGroupStart, ref.numStripGroups, false)
 		_, errExtended := reader.readStripGroups(ref.stripGroupStart, ref.numStripGroups, true)
 		if (errBase == nil) != (errExtended == nil) {
-			return errExtended == nil
+			return StripHeaderLayout{Extended: errExtended == nil, Source: LayoutDetected}
+		}
+		if errBase == nil && (len(groups) > 1 || slices.ContainsFunc(groups, func(g StripGroup) bool { return len(g.Strips) > 1 })) {
+			ambiguous = true
 		}
 	}
-	return false
+	if ambiguous {
+		return StripHeaderLayout{Source: LayoutAmbiguous}
+	}
+	return StripHeaderLayout{Source: LayoutIdentical}
 }
 
 // readStripGroups reads a mesh's strip groups with their vertices, indices and strips.

@@ -4,10 +4,52 @@ package vtx
 type Vtx struct {
 	// Header
 	Header Header
+	// StripHeaders says which strip group and strip header layout the file was read with, and how it was chosen
+	StripHeaders StripHeaderLayout
 	// BodyParts
 	BodyParts []BodyPart
 	// MaterialReplacements lists, for each LOD, the materials that LOD swaps in
 	MaterialReplacements [][]MaterialReplacement
+}
+
+// StripHeaderLayout is the layout of a vtx's strip group and strip headers. The vtx itself doesn't say which it uses:
+// MDL v49 added two fields to each.
+type StripHeaderLayout struct {
+	// Extended is true for the MDL v49 layout
+	Extended bool
+	// Source says how the layout was chosen
+	Source LayoutSource
+}
+
+// LayoutSource says how a vtx's strip header layout was chosen
+type LayoutSource int
+
+const (
+	// LayoutFromMDLVersion - from the mdl version given to ReadFromStreamWithMDLVersion
+	LayoutFromMDLVersion LayoutSource = iota + 1
+	// LayoutDetected - from a mesh that reads correctly under only one layout
+	LayoutDetected
+	// LayoutIdentical - no mesh has a second strip group or strip, so both layouts read the file identically and
+	// the result is correct either way
+	LayoutIdentical
+	// LayoutAmbiguous - some meshes read correctly but differently under both layouts. The older layout was used,
+	// which may be wrong; ReadFromStreamWithMDLVersion chooses by the mdl's version instead.
+	LayoutAmbiguous
+)
+
+// String
+func (source LayoutSource) String() string {
+	switch source {
+	case LayoutFromMDLVersion:
+		return "from mdl version"
+	case LayoutDetected:
+		return "detected"
+	case LayoutIdentical:
+		return "identical"
+	case LayoutAmbiguous:
+		return "ambiguous"
+	}
+	return "unset"
 }
 
 // MaterialReplacement replaces one of the mdl's materials at one LOD

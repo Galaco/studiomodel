@@ -19,8 +19,9 @@ Tested against Counter Strike Source and Counter Strike Global Offensive
 
 * VVD reader is stable. `VerticesForRootLOD` applies fixups, giving vertices in the order mdl and vtx indices expect
 * VTX reader reads all LODs, with their switch points, mesh and strip group flags, bone state changes and material
-replacements. The larger strip headers used by MDL v49 are detected automatically, or can be selected with
-`vtx.ReadFromStreamWithMDLVersion`
+replacements. A vtx doesn't record whether it uses the larger strip headers of MDL v49, so `vtx.ReadFromStream` detects
+it and `Vtx.StripHeaders` reports the layout and how it was chosen; `vtx.ReadFromStreamWithMDLVersion` chooses by
+the mdl's version instead
 * MDL reader reads the header and secondary header, bones and their procedural
 rules (axis and quaternion interpolation, aim-at, jiggle), bone controllers, hitboxes, attachments, pose parameters,
 IK chains and locks, included models, textures, skins and the body part / model / mesh tree, with their names. It
@@ -87,7 +88,7 @@ func main() {
 		log.Println(err)
 		return
 	}
-	vtxFile,err := vtx.ReadFromStream(f)
+	vtxFile,err := vtx.ReadFromStreamWithMDLVersion(f, mdlFile.Header.Version)
 	if err != nil {
 		log.Println(err)
 		return

@@ -3,7 +3,9 @@ package vtx
 import "io"
 
 // ReadFromStream parses a vtx from an io.Reader stream.
-// Whether strip headers use the larger MDL v49 layout is detected from the data.
+// The vtx doesn't say whether its strip headers use the larger MDL v49 layout, so it is detected from the data, and
+// Vtx.StripHeaders reports the layout and how it was chosen. When the mdl is at hand, ReadFromStreamWithMDLVersion
+// chooses by its version instead.
 func ReadFromStream(stream io.Reader) (*Vtx, error) {
 	reader := NewReader()
 	return reader.Read(stream)

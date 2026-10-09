@@ -110,6 +110,9 @@ func TestRead(t *testing.T) {
 			if v.Header.CheckSum != 1234 {
 				t.Errorf("checksum: got %d, want 1234", v.Header.CheckSum)
 			}
+			if want := (StripHeaderLayout{Extended: extended, Source: LayoutDetected}); v.StripHeaders != want {
+				t.Errorf("strip headers: got %+v, want %+v", v.StripHeaders, want)
+			}
 			want := [][]MaterialReplacement{{{MaterialID: 2, Name: "models/test/lod1"}}}
 			if !reflect.DeepEqual(v.MaterialReplacements, want) {
 				t.Errorf("material replacements: got %+v, want %+v", v.MaterialReplacements, want)
@@ -155,9 +158,64 @@ func TestReadWithMDLVersion(t *testing.T) {
 		{true, 48, true},
 		{false, 49, true},
 	} {
-		_, err := ReadFromStreamWithMDLVersion(bytes.NewReader(buildVtx(c.extended)), c.mdlVersion)
+		v, err := ReadFromStreamWithMDLVersion(bytes.NewReader(buildVtx(c.extended)), c.mdlVersion)
 		if (err != nil) != c.wantErr {
 			t.Errorf("extended=%v mdlVersion=%d: got err %v, want error %v", c.extended, c.mdlVersion, err, c.wantErr)
+		}
+		if want := (StripHeaderLayout{Extended: c.extended, Source: LayoutFromMDLVersion}); err == nil && v.StripHeaders != want {
+			t.Errorf("extended=%v mdlVersion=%d: got strip headers %+v, want %+v", c.extended, c.mdlVersion, v.StripHeaders, want)
+		}
+	}
+}
+
+// buildOneMeshVtx builds a vtx of one mesh, with a strip group for each entry of strips. A strip group with strips has
+// that many trilist strips of one triangle each; one without is empty.
+func buildOneMeshVtx(strips []int) []byte {
+	b := &testutil.Builder{}
+	b.I32(7, 24).I16(53, 9).I32(3, 1234, 1, 0, 1, 36)
+	b.I32(1, 8)                        // body part 0 at 36: one model at 44
+	b.I32(1, 8)                        // model 0 at 44: one LOD at 52
+	b.I32(1, 12).F32(0)                // LOD 0 at 52: one mesh at 64
+	b.I32(int32(len(strips)), 9).U8(0) // mesh 0 at 64: strip groups at 73
+	headers := b.Pos()
+	b.Zero(25 * len(strips))
+	for g, n := range strips {
+		pos := headers + 25*g
+		b.SetI32(pos, int32(3*n))
+		b.SetI32(pos+8, int32(3*n))
+		b.SetI32(pos+16, int32(n))
+		b.SetI32(pos+4, int32(b.Pos()-pos))
+		for v := range 3 * n {
+			b.U8(0, 0, 0, 1).I16(int16(v)).U8(0, 0, 0)
+		}
+		b.SetI32(pos+12, int32(b.Pos()-pos))
+		for i := range 3 * n {
+			b.I16(int16(i))
+		}
+		b.SetI32(pos+20, int32(b.Pos()-pos))
+		for s := range n {
+			b.I32(3, int32(3*s), 3, int32(3*s)).I16(1).U8(StripIsTriList).I32(0, 0)
+		}
+	}
+	return b.Zero(16).Bytes
+}
+
+func TestReadReportsUndecidedLayouts(t *testing.T) {
+	for name, c := range map[string]struct {
+		strips []int
+		want   LayoutSource
+	}{
+		// One strip group of one strip reads the same under both layouts
+		"identical": {[]int{1}, LayoutIdentical},
+		// Two empty strip groups followed by zeros read correctly, but differently, under both
+		"ambiguous": {[]int{0, 0}, LayoutAmbiguous},
+	} {
+		v, err := ReadFromStream(bytes.NewReader(buildOneMeshVtx(c.strips)))
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if want := (StripHeaderLayout{Source: c.want}); v.StripHeaders != want {
+			t.Errorf("%s: got %+v, want %+v", name, v.StripHeaders, want)
 		}
 	}
 }
