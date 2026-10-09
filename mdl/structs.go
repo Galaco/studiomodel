@@ -2,6 +2,25 @@ package mdl
 
 import "github.com/go-gl/mathgl/mgl32"
 
+// Quaternion is stored on disk as x, y, z, w (mgl32.Quat stores w first, so it cannot be read into directly).
+type Quaternion struct {
+	X, Y, Z, W float32
+}
+
+// Quat returns q as an mgl32.Quat
+func (q Quaternion) Quat() mgl32.Quat {
+	return mgl32.Quat{W: q.W, V: mgl32.Vec3{q.X, q.Y, q.Z}}
+}
+
+// Matrix3x4 is stored on disk row by row (Valve's matrix3x4_t). mgl32.Mat3x4 is column-major, so it cannot be read
+// into directly.
+type Matrix3x4 [3][4]float32
+
+// Mat3x4 returns m as an mgl32.Mat3x4
+func (m Matrix3x4) Mat3x4() mgl32.Mat3x4 {
+	return mgl32.Mat3x4FromRows(mgl32.Vec4(m[0]), mgl32.Vec4(m[1]), mgl32.Vec4(m[2]))
+}
+
 // Bone
 type Bone struct {
 	// NameIndex
@@ -14,7 +33,7 @@ type Bone struct {
 	// Position
 	Position mgl32.Vec3
 	// Quaternion
-	Quaternion mgl32.Quat
+	Quaternion Quaternion
 	// Rotation
 	Rotation mgl32.Vec3
 
@@ -24,9 +43,9 @@ type Bone struct {
 	RotScale mgl32.Vec3
 
 	// PoseToBone
-	PoseToBone mgl32.Mat3x4
+	PoseToBone Matrix3x4
 	// Alignment
-	Alignment mgl32.Quat
+	Alignment Quaternion
 
 	// Flags
 	Flags int32
@@ -34,6 +53,8 @@ type Bone struct {
 	ProcType int32
 	// ProcIndex
 	ProcIndex int32
+	// PhysicsBone
+	PhysicsBone int32
 	// SurfacePropIndex
 	SurfacePropIndex int32
 	// Contents

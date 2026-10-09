@@ -202,6 +202,12 @@ type Studiohdr struct {
 	// FlexControllerUIIndex
 	FlexControllerUIIndex int32
 
+	// VertAnimFixedPointScale
+	// Only meaningful when STUDIOHDR_FLAGS_VERT_ANIM_FIXED_POINT_SCALE is set; zero in older files
+	VertAnimFixedPointScale float32
+	// surfacepropLookup is cached by the engine at load time, not meaningful on disk
+	_ int32
+
 	// otional studiohdr2 offset
 	// StudioHDR2Index
 	StudioHDR2Index int32

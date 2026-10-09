@@ -1,11 +1,21 @@
 package phy
 
 import (
-	"bytes"
 	"encoding/binary"
-	"github.com/go-gl/mathgl/mgl32"
+	"fmt"
 	"io"
-	"unsafe"
+	"strings"
+
+	"github.com/galaco/studiomodel/internal"
+	"github.com/go-gl/mathgl/mgl32"
+)
+
+const (
+	// VPhysicsID is the expected CompactSurfaceHeader.VPhysicsID ("VPHY" in little-endian).
+	// Older files without it store the compact surface directly, which is not supported yet.
+	VPhysicsID = 0x59485056
+	// ModelTypeCompactSurface is the only supported CompactSurfaceHeader.ModelType (IVP compact surface, not MOPP)
+	ModelTypeCompactSurface = 0
 )
 
 // Reader
@@ -14,147 +24,118 @@ type Reader struct {
 
 // Read parses a stream to a Phy struct
 func (reader *Reader) Read(stream io.Reader) (*Phy, error) {
-	var buf []byte
-	byteBuf := bytes.Buffer{}
-	_, err := byteBuf.ReadFrom(stream)
+	buf, err := io.ReadAll(stream)
 	if err != nil {
 		return nil, err
 	}
-	buf = byteBuf.Bytes()
 
 	// Read header
-	header, err := reader.readHeader(buf)
+	header, err := internal.ReadStruct[Header](buf, 0, "header")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to read PHY header: %w", err)
+	}
+	if header.Size < int32(binary.Size(header)) || int64(header.Size) > int64(len(buf)) {
+		return nil, fmt.Errorf("invalid PHY header size: %d", header.Size)
+	}
+	if header.SolidCount < 0 {
+		return nil, fmt.Errorf("invalid negative solid count: %d", header.SolidCount)
 	}
 
-	offset := int32(0)
-
-	//bodyparts
-	offset += int32(unsafe.Sizeof(header))
-	compacts, legacys, offsets, err := reader.readSolids(buf, offset, header.SolidCount)
-	if err != nil {
-		return nil, err
-	}
-
-	faceHeaders, faces, vertices, err := reader.readTriangles(buf, offsets)
-	if err != nil {
-		return nil, err
+	// Solids follow the header back to back. Each read is bounds checked, so a corrupt count fails rather than
+	// allocating.
+	offset := int64(header.Size)
+	var solids []Solid
+	for i := int32(0); i < header.SolidCount; i++ {
+		solid, next, err := reader.readSolid(buf, offset)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read solid %d at offset %d: %w", i, offset, err)
+		}
+		solids = append(solids, solid)
+		offset = next
 	}
 
 	return &Phy{
-		Header:              header,
-		CompactSurfaces:     compacts,
-		LegacySurfaces:      legacys,
-		TriangleFaceHeaders: faceHeaders,
-		TriangleFaces:       faces,
-		Vertices:            vertices,
+		Header: header,
+		Solids: solids,
+		Text:   strings.TrimRight(string(buf[offset:]), "\x00"),
 	}, nil
 }
 
-// readHeader reads phy header information
-func (reader *Reader) readHeader(buf []byte) (header, error) {
-	header := header{}
-	headerSize := unsafe.Sizeof(header)
+// readSolid reads the solid at offset, and returns the offset of whatever follows it
+func (reader *Reader) readSolid(buf []byte, offset int64) (Solid, int64, error) {
+	solid := Solid{}
 
-	err := binary.Read(bytes.NewBuffer(buf[:headerSize]), binary.LittleEndian, &header)
-
-	return header, err
-}
-
-// readSolids reads compact and legacy entries
-func (reader *Reader) readSolids(buf []byte, offset int32, num int32) ([]compactSurfaceHeader, []legacySurfaceHeader, []int, error) {
-	compacts := make([]compactSurfaceHeader, num)
-	legacys := make([]legacySurfaceHeader, num)
-	offsets := make([]int, num)
-	compactSize := int32(unsafe.Sizeof(compactSurfaceHeader{}))
-	legacySize := int32(unsafe.Sizeof(legacySurfaceHeader{}))
-
-	for i := int32(0); i < num; i++ {
-		//compact
-		err := binary.Read(bytes.NewBuffer(buf[offset:offset+compactSize]), binary.LittleEndian, &compacts[i])
-		if err != nil {
-			return compacts, legacys, offsets, err
-		}
-		offsets[i] = int(offset + compactSize + legacySize)
-
-		//legacy
-		err = binary.Read(bytes.NewBuffer(buf[offset+compactSize:offset+compactSize+legacySize]), binary.LittleEndian, &legacys[i])
-		if err != nil {
-			return compacts, legacys, offsets, err
-		}
-
-		offset += compacts[i].Size + 4 // ?
-
+	var err error
+	solid.Header, err = internal.ReadStruct[CompactSurfaceHeader](buf, offset, "compact surface header")
+	if err != nil {
+		return solid, 0, err
+	}
+	if solid.Header.VPhysicsID != VPhysicsID {
+		return solid, 0, fmt.Errorf("unsupported collision data: VPhysicsID is 0x%08X, expected 0x%08X", solid.Header.VPhysicsID, VPhysicsID)
+	}
+	if solid.Header.ModelType != ModelTypeCompactSurface {
+		return solid, 0, fmt.Errorf("unsupported collision model type: %d", solid.Header.ModelType)
 	}
 
-	return compacts, legacys, offsets, nil
-}
+	// Size excludes the size field itself. Confine every other read to this solid.
+	end := offset + 4 + int64(solid.Header.Size)
+	if err := internal.CheckRange(buf, offset, end-offset, "solid"); err != nil {
+		return solid, 0, err
+	}
+	data := buf[:end]
 
-// readTriangles
-func (reader *Reader) readTriangles(buf []byte, initialOffsets []int) ([]triangleFaceHeader, []triangleFace, []mgl32.Vec4, error) {
-	headers := make([]triangleFaceHeader, 0)
-	triangles := make([]triangleFace, 0)
-	vertices := make([]mgl32.Vec4, 0)
-	headerSize := int(unsafe.Sizeof(triangleFaceHeader{}))
-	triangleSize := int(unsafe.Sizeof(triangleFace{}))
-	vertexSize := int(unsafe.Sizeof(mgl32.Vec4{}))
-
-	for i := 0; i < len(initialOffsets); i++ {
-		offset := initialOffsets[i]
-		// Read header
-		header := triangleFaceHeader{}
-		if err := binary.Read(bytes.NewBuffer(buf[offset:offset+headerSize]), binary.LittleEndian, &header); err != nil {
-			return nil, nil, nil, err
-		}
-		vertexDataOffset := offset + int(header.OffsetToVertices)
-
-		// Read triangles referenced in header
-		headerTriangles := make([]triangleFace, header.FaceCount)
-		if err := binary.Read(
-			bytes.NewBuffer(buf[offset+headerSize:offset+headerSize+triangleSize*len(headerTriangles)]),
-			binary.LittleEndian,
-			&headerTriangles); err != nil {
-			return nil, nil, nil, err
-		}
-
-		// Prepare the next offset to the next triangle
-		offset += (headerSize + (len(headerTriangles) * triangleSize))
-
-		// Discard if set
-		if header.DummyFlag&1 > 0 {
-			continue
-		}
-		headers = append(headers, header)
-		triangles = append(triangles, headerTriangles...)
-
-		// calc number of Verts
-		numVerts := 0
-		for _, t := range headerTriangles {
-			if int(t.V1) > numVerts {
-				numVerts = int(t.V1)
-			}
-			if int(t.V2) > numVerts {
-				numVerts = int(t.V2)
-			}
-			if int(t.V3) > numVerts {
-				numVerts = int(t.V3)
-			}
-		}
-
-		// read verts
-		triangleVertices := make([]mgl32.Vec4, numVerts+1)
-		if err := binary.Read(
-			bytes.NewBuffer(buf[vertexDataOffset:vertexDataOffset+(vertexSize*(numVerts+1))]),
-			binary.LittleEndian,
-			&triangleVertices); err != nil {
-			return nil, nil, nil, err
-		}
-
-		vertices = append(vertices, triangleVertices...)
+	surfaceStart := offset + int64(binary.Size(CompactSurfaceHeader{}))
+	solid.Surface, err = internal.ReadStruct[CompactSurface](data, surfaceStart, "compact surface")
+	if err != nil {
+		return solid, 0, err
 	}
 
-	return headers, triangles, vertices, nil
+	// Ledges follow the surface back to back, up to the vertices they all share
+	ledgeHeaderSize := int64(binary.Size(LedgeHeader{}))
+	triangleSize := int64(binary.Size(Triangle{}))
+	ledgeStart := surfaceStart + int64(binary.Size(CompactSurface{}))
+	first, err := internal.ReadStruct[LedgeHeader](data, ledgeStart, "ledge")
+	if err != nil {
+		return solid, 0, err
+	}
+	verticesStart := ledgeStart + int64(first.PointOffset)
+	if verticesStart <= ledgeStart {
+		return solid, 0, fmt.Errorf("invalid ledge vertex offset: %d", first.PointOffset)
+	}
+
+	numVertices := 0
+	pos := ledgeStart
+	for pos < verticesStart {
+		ledgeHeader, err := internal.ReadStruct[LedgeHeader](data, pos, "ledge")
+		if err != nil {
+			return solid, 0, err
+		}
+		if pos+int64(ledgeHeader.PointOffset) != verticesStart {
+			return solid, 0, fmt.Errorf("ledge %d at offset %d does not share the solid's vertices", len(solid.Ledges), pos)
+		}
+		triangles, err := internal.ReadSlice[Triangle](data, pos+ledgeHeaderSize, int64(ledgeHeader.NumTriangles), "triangles")
+		if err != nil {
+			return solid, 0, err
+		}
+		for _, t := range triangles {
+			numVertices = max(numVertices, int(t.V1)+1, int(t.V2)+1, int(t.V3)+1)
+		}
+		solid.Ledges = append(solid.Ledges, Ledge{
+			Header:    ledgeHeader,
+			Triangles: triangles,
+		})
+		pos += ledgeHeaderSize + triangleSize*int64(len(triangles))
+	}
+	if pos != verticesStart {
+		return solid, 0, fmt.Errorf("ledges overrun the solid's vertices: ended at %d, vertices start at %d", pos, verticesStart)
+	}
+
+	solid.Vertices, err = internal.ReadSlice[mgl32.Vec4](data, verticesStart, int64(numVertices), "vertices")
+	if err != nil {
+		return solid, 0, err
+	}
+
+	return solid, end, nil
 }
 
 // NewReader returns a new reader

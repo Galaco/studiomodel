@@ -1,12 +1,12 @@
 package vvd
 
 import (
-	"bytes"
 	"encoding/binary"
 	"fmt"
-	"github.com/go-gl/mathgl/mgl32"
 	"io"
-	"unsafe"
+
+	"github.com/galaco/studiomodel/internal"
+	"github.com/go-gl/mathgl/mgl32"
 )
 
 const (
@@ -22,22 +22,19 @@ type Reader struct {
 
 // Read parses a stream to a Vvd struct
 func (reader *Reader) Read(stream io.Reader) (*Vvd, error) {
-	var buf []byte
-	byteBuf := bytes.Buffer{}
-	_, err := byteBuf.ReadFrom(stream)
+	buf, err := io.ReadAll(stream)
 	if err != nil {
 		return nil, err
 	}
-	buf = byteBuf.Bytes()
 
 	// Validate minimum file size
-	if len(buf) < int(unsafe.Sizeof(header{})) {
-		return nil, fmt.Errorf("vvd file too small: %d bytes, expected at least %d", len(buf), unsafe.Sizeof(header{}))
+	headerSize := binary.Size(header{})
+	if len(buf) < headerSize {
+		return nil, fmt.Errorf("vvd file too small: %d bytes, expected at least %d", len(buf), headerSize)
 	}
 
-	offset := 0
 	// Read header
-	header, _, err := reader.readHeader(buf, offset)
+	header, err := reader.readHeader(buf)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read VVD header: %w", err)
 	}
@@ -67,19 +64,20 @@ func (reader *Reader) Read(stream io.Reader) (*Vvd, error) {
 	}
 
 	// Read fixups
-	fixups, _, err := reader.readFixups(buf, int(header.FixupTableStart), int(header.NumFixups))
+	fixups, err := internal.ReadSlice[fixup](buf, int64(header.FixupTableStart), int64(header.NumFixups), "fixups")
 	if err != nil {
 		return nil, fmt.Errorf("failed to read VVD fixups at offset %d: %w", header.FixupTableStart, err)
 	}
 
 	//Read vertices
-	vertices, _, err := reader.readVertices(buf, int(header.VertexDataStart), &header)
+	vertices, err := reader.readVertices(buf, &header)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read VVD vertices at offset %d: %w", header.VertexDataStart, err)
 	}
 
 	//Read tangents
-	tangents, _, err := reader.readTangents(buf, int(header.TangentDataStart), &header)
+	// NOTE: There is 1 tangent for every vertex
+	tangents, err := internal.ReadSlice[mgl32.Vec4](buf, int64(header.TangentDataStart), int64(len(vertices)), "tangents")
 	if err != nil {
 		return nil, fmt.Errorf("failed to read VVD tangents at offset %d: %w", header.TangentDataStart, err)
 	}
@@ -93,98 +91,30 @@ func (reader *Reader) Read(stream io.Reader) (*Vvd, error) {
 }
 
 // Reads studiohdr header information
-func (reader *Reader) readHeader(buf []byte, offset int) (header, int, error) {
-	header := header{}
-	headerSize := unsafe.Sizeof(header)
-
-	err := binary.Read(bytes.NewBuffer(buf[offset:headerSize]), binary.LittleEndian, &header)
-
-	return header, int(headerSize), err
-}
-
-func (reader *Reader) readFixups(buf []byte, offset int, numFixups int) ([]fixup, int, error) {
-	if numFixups < 0 {
-		return nil, 0, fmt.Errorf("invalid negative fixup count: %d", numFixups)
-	}
-
-	if numFixups == 0 {
-		return []fixup{}, offset, nil
-	}
-
-	fixupSize := int(unsafe.Sizeof(fixup{}))
-
-	// Validate buffer bounds
-	requiredSize := offset + (fixupSize * numFixups)
-	if requiredSize > len(buf) {
-		return nil, 0, fmt.Errorf("fixup data exceeds buffer: need %d bytes, have %d", requiredSize, len(buf))
-	}
-
-	fixups := make([]fixup, numFixups)
-	err := binary.Read(bytes.NewBuffer(buf[offset:offset+(fixupSize*numFixups)]), binary.LittleEndian, &fixups)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	return fixups, offset + (fixupSize * numFixups), nil
+func (reader *Reader) readHeader(buf []byte) (header, error) {
+	return internal.ReadStruct[header](buf, 0, "header")
 }
 
 // read vertex data
-func (reader *Reader) readVertices(buf []byte, offset int, header *header) ([]vertex, int, error) {
-	vertexSize := int(unsafe.Sizeof(vertex{}))
+func (reader *Reader) readVertices(buf []byte, header *header) ([]vertex, error) {
+	vertexSize := int64(binary.Size(vertex{}))
 
 	// Calculate the actual number of vertices stored in the file by using byte offsets
 	// The vertices are stored from VertexDataStart to TangentDataStart
 	// Note: NumLODVertexes represents vertices needed per LOD (for use with fixups),
 	// NOT how many vertices are stored in the file
-	vertexDataLength := int(header.TangentDataStart - header.VertexDataStart)
+	vertexDataLength := int64(header.TangentDataStart) - int64(header.VertexDataStart)
 	if vertexDataLength < 0 {
-		return nil, 0, fmt.Errorf("invalid vertex data range: TangentDataStart=%d < VertexDataStart=%d",
+		return nil, fmt.Errorf("invalid vertex data range: TangentDataStart=%d < VertexDataStart=%d",
 			header.TangentDataStart, header.VertexDataStart)
 	}
 
 	if vertexDataLength%vertexSize != 0 {
-		return nil, 0, fmt.Errorf("vertex data length %d is not a multiple of vertex size %d",
+		return nil, fmt.Errorf("vertex data length %d is not a multiple of vertex size %d",
 			vertexDataLength, vertexSize)
 	}
 
-	numVertices := vertexDataLength / vertexSize
-
-	// Validate buffer bounds
-	requiredSize := offset + vertexDataLength
-	if requiredSize > len(buf) {
-		return nil, 0, fmt.Errorf("vertex data exceeds buffer: need %d bytes, have %d", requiredSize, len(buf))
-	}
-
-	vertexes := make([]vertex, numVertices)
-	err := binary.Read(bytes.NewBuffer(buf[offset:offset+vertexDataLength]), binary.LittleEndian, &vertexes)
-
-	return vertexes, offset + vertexDataLength, err
-}
-
-// read tangent data
-// NOTE: There is 1 tangent for every vertex
-func (reader *Reader) readTangents(buf []byte, offset int, header *header) ([]mgl32.Vec4, int, error) {
-	tangentSize := int(unsafe.Sizeof(mgl32.Vec4{}))
-
-	// Calculate number of tangents from vertex count (1 tangent per vertex)
-	// Tangents are stored from TangentDataStart to end of vertex data
-	vertexDataLength := int(header.TangentDataStart - header.VertexDataStart)
-	vertexSize := int(unsafe.Sizeof(vertex{}))
-	numTangents := vertexDataLength / vertexSize
-
-	// Calculate tangent data length
-	tangentDataLength := numTangents * tangentSize
-
-	// Validate buffer bounds
-	requiredSize := offset + tangentDataLength
-	if requiredSize > len(buf) {
-		return nil, 0, fmt.Errorf("tangent data exceeds buffer: need %d bytes, have %d", requiredSize, len(buf))
-	}
-
-	tangents := make([]mgl32.Vec4, numTangents)
-	err := binary.Read(bytes.NewBuffer(buf[offset:offset+tangentDataLength]), binary.LittleEndian, &tangents)
-
-	return tangents, offset + tangentDataLength, err
+	return internal.ReadSlice[vertex](buf, int64(header.VertexDataStart), vertexDataLength/vertexSize, "vertices")
 }
 
 // NewReader returns a new reader

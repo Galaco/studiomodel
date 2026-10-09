@@ -1,8 +1,6 @@
 [![GoDoc](https://godoc.org/github.com/Galaco/studiomodel?status.svg)](https://godoc.org/github.com/Galaco/studiomodel)
 [![Go report card](https://goreportcard.com/badge/github.com/galaco/studiomodel)](https://goreportcard.com/badge/github.com/galaco/studiomodel)
-[![GolangCI](https://golangci.com/badges/github.com/galaco/studiomodel.svg)](https://golangci.com)\
-[![codecov](https://codecov.io/gh/Galaco/studiomodel/branch/master/graph/badge.svg)](https://codecov.io/gh/Galaco/studiomodel)
-[![CircleCI](https://circleci.com/gh/Galaco/studiomodel.svg?style=svg)](https://circleci.com/gh/Galaco/studiomodel)
+[![Tests](https://github.com/Galaco/studiomodel/actions/workflows/test.yml/badge.svg)](https://github.com/Galaco/studiomodel/actions/workflows/test.yml)
 
 # studiomodel
 Golang library for loading Valve studiomodel formats (.mdl, .vtx, .vvd)
@@ -19,10 +17,14 @@ Tested against Counter Strike Source and Counter Strike Global Offensive
 
 #### Features
 
-* VVD reader is stable
-* VTX reader is usable, only for single LOD models
-* MDL reader is usable, currently incomplete (some properties not populated)
-* PHY reader is usable, string data table is not supported yet
+* VVD reader is stable. Fixups are exposed but not yet applied, so multi-LOD models need them resolved by the caller
+* VTX reader reads all LODs. The larger strip headers used by MDL v49 are detected automatically, or can be
+selected with `vtx.ReadFromStreamWithMDLVersion`
+* MDL reader is usable, currently incomplete: it reads the header, bones, bone controllers, hitbox sets, animation and
+sequence descriptions, textures and the body part / model / mesh tree. Names, skins, animation data and most other
+sections are not read yet
+* PHY reader reads every solid and its convex pieces. The key-values text that follows them is exposed as a string
+but not parsed yet
 
 
 
@@ -101,6 +103,19 @@ func main() {
 	
 	log.Println(prop)
 }
+```
+
+### Testing
+
+```bash
+go test ./...
+```
+
+Real game models can't be committed, so to also parse a local folder of them (each `.mdl` alongside its `.vvd`,
+`.vtx` and `.phy`):
+
+```bash
+STUDIOMODEL_TESTDATA=/path/to/models go test -run TestRealModels .
 ```
 
 

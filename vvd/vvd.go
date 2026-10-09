@@ -70,7 +70,7 @@ type boneWeight struct {
 	// Weight
 	Weight [MaxNumBonesPerVertex]float32
 	// Bone
-	Bone [MaxNumBonesPerVertex]int8
+	Bone [MaxNumBonesPerVertex]uint8
 	// NumBones
 	NumBones int8
 }

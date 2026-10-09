@@ -1,37 +1,52 @@
 package vtx
 
 import (
-	"bytes"
 	"encoding/binary"
-	"errors"
 	"fmt"
-	"github.com/galaco/studiomodel/internal"
 	"io"
-	"unsafe"
+
+	"github.com/galaco/studiomodel/internal"
 )
 
 const (
 	// VTXVersion is the expected file version for Source engine VTX files
 	VTXVersion = 7
+	// ExtendedHeaderMDLVersion is the first MDL version whose VTX strip group and strip headers carry two extra
+	// topology fields (8 bytes)
+	ExtendedHeaderMDLVersion = 49
+	// topologyFieldsSize is the size of the topology fields added in MDL v49
+	topologyFieldsSize = 8
 )
 
 // Reader
 type Reader struct {
 	buf []byte
+	// MDLVersion is the version of the mdl this vtx belongs to. When non-zero it selects the strip group and strip
+	// header layout; when zero the layout is detected from the data.
+	MDLVersion int32
+}
+
+// meshRef locates the strip groups of one parsed mesh
+type meshRef struct {
+	mesh            *Mesh
+	stripGroupStart int64
+	numStripGroups  int32
+
+	bodyPart, model, lod, index int
 }
 
 // Read parses a stream to a Vtx struct
 func (reader *Reader) Read(stream io.Reader) (*Vtx, error) {
-	byteBuf := bytes.Buffer{}
-	_, err := byteBuf.ReadFrom(stream)
+	buf, err := io.ReadAll(stream)
 	if err != nil {
 		return nil, err
 	}
-	reader.buf = byteBuf.Bytes()
+	reader.buf = buf
 
 	// Validate minimum file size
-	if len(reader.buf) < int(unsafe.Sizeof(header{})) {
-		return nil, fmt.Errorf("vtx file too small: %d bytes, expected at least %d", len(reader.buf), unsafe.Sizeof(header{}))
+	headerSize := binary.Size(header{})
+	if len(reader.buf) < headerSize {
+		return nil, fmt.Errorf("vtx file too small: %d bytes, expected at least %d", len(reader.buf), headerSize)
 	}
 
 	// Read header
@@ -50,248 +65,166 @@ func (reader *Reader) Read(stream io.Reader) (*Vtx, error) {
 		return nil, fmt.Errorf("VTX header contains negative counts: NumLODs=%d NumBodyParts=%d", header.NumLODs, header.NumBodyParts)
 	}
 
-	// Validate offsets
-	if header.BodyPartOffset < 0 || int(header.BodyPartOffset) > len(reader.buf) {
-		return nil, fmt.Errorf("VTX body part offset %d out of bounds (file size %d)", header.BodyPartOffset, len(reader.buf))
+	// Parse everything down to mesh headers first: the strip group layout can only be detected from them
+	out, meshes, err := reader.readMeshes(&header)
+	if err != nil {
+		return nil, err
 	}
 
-	out := Vtx{}
+	extended := reader.MDLVersion >= ExtendedHeaderMDLVersion
+	if reader.MDLVersion == 0 {
+		extended = reader.detectExtendedHeaders(meshes)
+	}
 
-	// Parse body parts
-	bodyPartHeaderSize := internal.SizeOf(&bodyPartHeader{})
-	bodyPartStart := header.BodyPartOffset
+	for _, ref := range meshes {
+		stripGroups, err := reader.readStripGroups(ref.stripGroupStart, ref.numStripGroups, extended)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read strip groups for mesh %d, LOD %d, model %d, body part %d: %w", ref.index, ref.lod, ref.model, ref.bodyPart, err)
+		}
+		ref.mesh.StripGroups = stripGroups
+	}
 
-	bodyPartHeaders, err := reader.readBodyParts(bodyPartStart, header.NumBodyParts)
+	return out, nil
+}
+
+// readHeader reads studiohdr header information
+func (reader *Reader) readHeader() (header, error) {
+	return internal.ReadStruct[header](reader.buf, 0, "header")
+}
+
+// readMeshes parses body parts, models, LODs and meshes, and returns where each mesh's strip groups are.
+// Counts of zero are valid: a blank bodygroup model has no meshes.
+func (reader *Reader) readMeshes(header *header) (*Vtx, []meshRef, error) {
+	bodyPartHeaderSize := int64(binary.Size(bodyPartHeader{}))
+	modelHeaderSize := int64(binary.Size(modelHeader{}))
+	modelLODHeaderSize := int64(binary.Size(modelLODHeader{}))
+	meshHeaderSize := int64(binary.Size(meshHeader{}))
+
+	out := &Vtx{}
+	var meshes []meshRef
+
+	bodyPartStart := int64(header.BodyPartOffset)
+	bodyPartHeaders, err := internal.ReadSlice[bodyPartHeader](reader.buf, bodyPartStart, int64(header.NumBodyParts), "body parts")
 	if err != nil {
-		return nil, fmt.Errorf("failed to read body parts: %w", err)
+		return nil, nil, fmt.Errorf("failed to read body parts: %w", err)
 	}
 
 	out.BodyParts = make([]BodyPart, len(bodyPartHeaders))
 
 	// Iterate through body parts
 	for i, bodyPartHeader := range bodyPartHeaders {
-		bodyPartOut := BodyPart{}
-		bodyPartPos := bodyPartStart + (int32(i) * bodyPartHeaderSize)
-		modelStart := bodyPartPos + bodyPartHeader.ModelOffset
-
-		// Parse models
-		modelHeaderSize := internal.SizeOf(&modelHeader{})
-		modelHeaders, err := reader.readModels(modelStart, bodyPartHeader.NumModels)
+		modelStart := bodyPartStart + int64(i)*bodyPartHeaderSize + int64(bodyPartHeader.ModelOffset)
+		modelHeaders, err := internal.ReadSlice[modelHeader](reader.buf, modelStart, int64(bodyPartHeader.NumModels), "models")
 		if err != nil {
-			return nil, fmt.Errorf("failed to read models for body part %d: %w", i, err)
+			return nil, nil, fmt.Errorf("failed to read models for body part %d: %w", i, err)
 		}
 
+		bodyPartOut := &out.BodyParts[i]
 		bodyPartOut.Models = make([]Model, len(modelHeaders))
 
 		// Iterate through models
 		for j, modelHeader := range modelHeaders {
-			modelOut := Model{}
-			modelPos := modelStart + (int32(j) * modelHeaderSize)
-			modelLODStart := modelPos + modelHeader.LODOffset
-
-			// Parse model LODs
-			modelLODHeaderSize := internal.SizeOf(&modelLODHeader{})
-			modelLODHeaders, err := reader.readModelLODs(modelLODStart, modelHeader.NumLODs)
+			modelLODStart := modelStart + int64(j)*modelHeaderSize + int64(modelHeader.LODOffset)
+			modelLODHeaders, err := internal.ReadSlice[modelLODHeader](reader.buf, modelLODStart, int64(modelHeader.NumLODs), "model LODs")
 			if err != nil {
-				return nil, fmt.Errorf("failed to read LODs for model %d in body part %d: %w", j, i, err)
+				return nil, nil, fmt.Errorf("failed to read LODs for model %d in body part %d: %w", j, i, err)
 			}
 
+			modelOut := &bodyPartOut.Models[j]
 			modelOut.LODS = make([]ModelLOD, len(modelLODHeaders))
 
 			// Iterate through LODs
 			for k, modelLODHeader := range modelLODHeaders {
-				modelLODOut := ModelLOD{}
-				modelLODPos := modelLODStart + (int32(k) * modelLODHeaderSize)
-				meshStart := modelLODPos + modelLODHeader.MeshOffset
-
-				// Parse meshes
-				meshHeaderSize := int32(9) // VTX ignores trailing byte 4-byte alignment
-				meshHeaders, err := reader.readMeshes(meshStart, modelLODHeader.NumMeshes)
+				meshStart := modelLODStart + int64(k)*modelLODHeaderSize + int64(modelLODHeader.MeshOffset)
+				meshHeaders, err := internal.ReadSlice[meshHeader](reader.buf, meshStart, int64(modelLODHeader.NumMeshes), "meshes")
 				if err != nil {
-					return nil, fmt.Errorf("failed to read meshes for LOD %d, model %d, body part %d: %w", k, j, i, err)
+					return nil, nil, fmt.Errorf("failed to read meshes for LOD %d, model %d, body part %d: %w", k, j, i, err)
 				}
 
+				modelLODOut := &modelOut.LODS[k]
 				modelLODOut.Meshes = make([]Mesh, len(meshHeaders))
 
-				// Iterate through meshes
 				for l, meshHeader := range meshHeaders {
-					meshOut := Mesh{}
-					meshPos := meshStart + (int32(l) * meshHeaderSize)
-					stripGroupStart := meshPos + meshHeader.StripGroupHeaderOffset
-
-					// Parse strip groups
-					stripGroupHeaderSize := int32(25) // VTX ignores trailing byte 4-byte alignment
-					stripGroupHeaders, err := reader.readStripGroups(stripGroupStart, meshHeader.NumStripGroups)
-					if err != nil {
-						return nil, fmt.Errorf("failed to read strip groups for mesh %d, LOD %d, model %d, body part %d: %w", l, k, j, i, err)
-					}
-
-					meshOut.StripGroups = make([]StripGroup, len(stripGroupHeaders))
-
-					// Iterate through strip groups
-					for m, stripGroupHeader := range stripGroupHeaders {
-						stripGroupOut := StripGroup{}
-						stripGroupPos := stripGroupStart + (int32(m) * stripGroupHeaderSize)
-
-						// Read vertices, indices, and strips for this strip group
-						stripGroupOut.Vertexes, err = reader.readVertices(stripGroupPos+stripGroupHeader.VertOffset, stripGroupHeader.NumVerts)
-						if err != nil {
-							return nil, fmt.Errorf("failed to read vertices for strip group %d: %w", m, err)
-						}
-
-						stripGroupOut.Indices, err = reader.readIndices(stripGroupPos+stripGroupHeader.IndexOffset, stripGroupHeader.NumIndices)
-						if err != nil {
-							return nil, fmt.Errorf("failed to read indices for strip group %d: %w", m, err)
-						}
-
-						stripGroupOut.Strips, err = reader.readStrips(stripGroupPos+stripGroupHeader.StripOffset, stripGroupHeader.NumStrips)
-						if err != nil {
-							return nil, fmt.Errorf("failed to read strips for strip group %d: %w", m, err)
-						}
-
-						meshOut.StripGroups[m] = stripGroupOut
-					}
-
-					modelLODOut.Meshes[l] = meshOut
+					meshes = append(meshes, meshRef{
+						mesh:            &modelLODOut.Meshes[l],
+						stripGroupStart: meshStart + int64(l)*meshHeaderSize + int64(meshHeader.StripGroupHeaderOffset),
+						numStripGroups:  meshHeader.NumStripGroups,
+						bodyPart:        i,
+						model:           j,
+						lod:             k,
+						index:           l,
+					})
 				}
-
-				modelOut.LODS[k] = modelLODOut
 			}
+		}
+	}
 
-			bodyPartOut.Models[j] = modelOut
+	return out, meshes, nil
+}
+
+// detectExtendedHeaders reports whether strip group and strip headers use the MDL v49 layout. The layouts only
+// differ from the second strip group or strip of a mesh onwards, so the first mesh that parses under exactly one
+// layout decides. When no mesh does, the layouts read identically and either is correct.
+func (reader *Reader) detectExtendedHeaders(meshes []meshRef) bool {
+	for _, ref := range meshes {
+		_, errBase := reader.readStripGroups(ref.stripGroupStart, ref.numStripGroups, false)
+		_, errExtended := reader.readStripGroups(ref.stripGroupStart, ref.numStripGroups, true)
+		if (errBase == nil) != (errExtended == nil) {
+			return errExtended == nil
+		}
+	}
+	return false
+}
+
+// readStripGroups reads a mesh's strip groups with their vertices, indices and strips.
+// extended selects the MDL v49 header layout.
+func (reader *Reader) readStripGroups(offset int64, num int32, extended bool) ([]StripGroup, error) {
+	stripGroupStride := int64(binary.Size(stripGroupHeader{}))
+	stripStride := int64(binary.Size(Strip{}))
+	if extended {
+		stripGroupStride += topologyFieldsSize
+		stripStride += topologyFieldsSize
+	}
+
+	stripGroupHeaders, err := internal.ReadStrided[stripGroupHeader](reader.buf, offset, int64(num), stripGroupStride, "strip groups")
+	if err != nil {
+		return nil, err
+	}
+
+	stripGroups := make([]StripGroup, len(stripGroupHeaders))
+	for m, stripGroupHeader := range stripGroupHeaders {
+		stripGroupPos := offset + int64(m)*stripGroupStride
+
+		stripGroups[m].Vertexes, err = internal.ReadSlice[Vertex](reader.buf, stripGroupPos+int64(stripGroupHeader.VertOffset), int64(stripGroupHeader.NumVerts), "vertices")
+		if err != nil {
+			return nil, fmt.Errorf("failed to read vertices for strip group %d: %w", m, err)
 		}
 
-		out.BodyParts[i] = bodyPartOut
+		stripGroups[m].Indices, err = internal.ReadSlice[uint16](reader.buf, stripGroupPos+int64(stripGroupHeader.IndexOffset), int64(stripGroupHeader.NumIndices), "indices")
+		if err != nil {
+			return nil, fmt.Errorf("failed to read indices for strip group %d: %w", m, err)
+		}
+
+		stripGroups[m].Strips, err = internal.ReadStrided[Strip](reader.buf, stripGroupPos+int64(stripGroupHeader.StripOffset), int64(stripGroupHeader.NumStrips), stripStride, "strips")
+		if err != nil {
+			return nil, fmt.Errorf("failed to read strips for strip group %d: %w", m, err)
+		}
+
+		// Strips index into their strip group's indices and vertices
+		for s, strip := range stripGroups[m].Strips {
+			if !withinRange(strip.IndexOffset, strip.NumIndices, stripGroupHeader.NumIndices) ||
+				!withinRange(strip.VertOffset, strip.NumVerts, stripGroupHeader.NumVerts) {
+				return nil, fmt.Errorf("strip %d of strip group %d lies outside the strip group's indices or vertices", s, m)
+			}
+		}
 	}
 
-	return &out, nil
+	return stripGroups, nil
 }
 
-// readHeader reads studiohdr header information
-func (reader *Reader) readHeader() (header, error) {
-	header := header{}
-	headerSize := unsafe.Sizeof(header)
-
-	err := binary.Read(bytes.NewBuffer(reader.buf[:headerSize]), binary.LittleEndian, &header)
-
-	return header, err
-}
-
-// readBodyParts
-func (reader *Reader) readBodyParts(offset int32, num int32) ([]bodyPartHeader, error) {
-	if !isPropertyValid(offset, num, len(reader.buf)) {
-		return make([]bodyPartHeader, 0), errors.New("body part data out of bounds")
-	}
-	ret := make([]bodyPartHeader, num)
-	err := binary.Read(bytes.NewBuffer(reader.buf[offset:]), binary.LittleEndian, &ret)
-	if err != nil {
-		return nil, err
-	}
-	return ret, nil
-}
-
-// readModels
-func (reader *Reader) readModels(offset int32, num int32) ([]modelHeader, error) {
-	if !isPropertyValid(offset, num, len(reader.buf)) {
-		return make([]modelHeader, 0), errors.New("model data out of bounds")
-	}
-	ret := make([]modelHeader, num)
-	err := binary.Read(bytes.NewBuffer(reader.buf[offset:]), binary.LittleEndian, &ret)
-	if err != nil {
-		return nil, err
-	}
-	return ret, nil
-}
-
-// readModelLODs
-func (reader *Reader) readModelLODs(offset int32, num int32) ([]modelLODHeader, error) {
-	if !isPropertyValid(offset, num, len(reader.buf)) {
-		return make([]modelLODHeader, 0), errors.New("model lod data out of bounds")
-	}
-	ret := make([]modelLODHeader, num)
-	err := binary.Read(bytes.NewBuffer(reader.buf[offset:]), binary.LittleEndian, &ret)
-	if err != nil {
-		return nil, err
-	}
-	return ret, nil
-}
-
-// readMeshes
-func (reader *Reader) readMeshes(offset int32, num int32) ([]meshHeader, error) {
-	if !isPropertyValid(offset, num, len(reader.buf)) {
-		return make([]meshHeader, 0), errors.New("mesh data out of bounds")
-	}
-	ret := make([]meshHeader, num)
-	err := binary.Read(bytes.NewBuffer(reader.buf[offset:]), binary.LittleEndian, &ret)
-	if err != nil {
-		return nil, err
-	}
-	return ret, nil
-}
-
-// readStripGroups
-func (reader *Reader) readStripGroups(offset int32, num int32) ([]stripGroupHeader, error) {
-	if !isPropertyValid(offset, num, len(reader.buf)) {
-		return make([]stripGroupHeader, 0), errors.New("strip group data out of bounds")
-	}
-	ret := make([]stripGroupHeader, num)
-	err := binary.Read(bytes.NewBuffer(reader.buf[offset:]), binary.LittleEndian, &ret)
-	if err != nil {
-		return nil, err
-	}
-	return ret, nil
-}
-
-// readIndices
-func (reader *Reader) readIndices(offset int32, num int32) ([]uint16, error) {
-	if !isPropertyValid(offset, num, len(reader.buf)) {
-		return make([]uint16, 0), errors.New("indices data out of bounds")
-	}
-	ret := make([]uint16, num)
-	err := binary.Read(bytes.NewBuffer(reader.buf[offset:]), binary.LittleEndian, &ret)
-	if err != nil {
-		return nil, err
-	}
-	return ret, nil
-}
-
-// readVertices
-func (reader *Reader) readVertices(offset int32, num int32) ([]Vertex, error) {
-	if !isPropertyValid(offset, num, len(reader.buf)) {
-		return make([]Vertex, 0), errors.New("vertex data out of bounds")
-	}
-	ret := make([]Vertex, num)
-	err := binary.Read(bytes.NewBuffer(reader.buf[offset:]), binary.LittleEndian, &ret)
-	if err != nil {
-		return nil, err
-	}
-	return ret, nil
-}
-
-// readStrips
-func (reader *Reader) readStrips(offset int32, num int32) ([]Strip, error) {
-	if !isPropertyValid(offset, num, len(reader.buf)) {
-		return make([]Strip, 0), errors.New("strip data out of bounds")
-	}
-	ret := make([]Strip, num)
-	err := binary.Read(bytes.NewBuffer(reader.buf[offset:]), binary.LittleEndian, &ret)
-	if err != nil {
-		return nil, err
-	}
-	return ret, nil
-}
-
-func isPropertyValid(offset int32, num int32, bufferSize int) bool {
-	if num < 1 || offset < 1 {
-		return false
-	}
-	// Actually check if the data fits within the buffer
-	// Note: This is a conservative check that doesn't know struct size,
-	// but at least validates the offset is reasonable
-	if int(offset) >= bufferSize {
-		return false
-	}
-	return true
+// withinRange reports whether [offset, offset+count) lies within [0, total)
+func withinRange(offset int32, count int32, total int32) bool {
+	return offset >= 0 && count >= 0 && int64(offset)+int64(count) <= int64(total)
 }
 
 // NewReader returns a new reader
