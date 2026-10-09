@@ -396,11 +396,14 @@ func FuzzRead(f *testing.F) {
 	f.Add(buildMdl().Bytes)
 	animated, _ := buildAnimatedMdl()
 	f.Add(animated)
+	f.Add(buildFaceMdl(false))
+	f.Add(buildFaceMdl(true))
 	f.Fuzz(func(t *testing.T, data []byte) {
 		m, err := ReadFromStream(bytes.NewReader(data))
 		if err != nil {
 			return
 		}
+		_, _ = m.FlexWeights(make([]float32, len(m.FlexControllers)))
 		for i, desc := range m.AnimDescs {
 			for frame := range min(int(desc.NumFrames), 16) {
 				_, _ = m.AnimationFrame(i, frame)

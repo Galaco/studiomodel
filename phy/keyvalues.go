@@ -10,7 +10,7 @@ import (
 
 // Section is one block of a phy's key-values text, such as a solid or a ragdoll constraint
 type Section struct {
-	// Name - solid, ragdollconstraint, collisionrules, editparams or animatedfriction
+	// Name - solid, ragdollconstraint, collisionrules, editparams, animatedfriction or break
 	Name string
 	// KeyValues in file order. Keys can repeat, such as collisionpair.
 	KeyValues []KeyValue
@@ -75,7 +75,9 @@ func ToSource(v mgl32.Vec4) mgl32.Vec3 {
 	return mgl32.Vec3{v[0], v[2], -v[1]}.Mul(1 / metresPerInch)
 }
 
-// Sections parses Text into its sections
+// Sections parses Text into its sections. Like the engine, it reads the text as pairs of words, starting a section
+// at each pair whose second word is {, and skips any other pairs between sections; some of Valve's own files have
+// stray words there.
 func (phy *Phy) Sections() ([]Section, error) {
 	tokens, err := tokenize(phy.Text)
 	if err != nil {
@@ -83,9 +85,10 @@ func (phy *Phy) Sections() ([]Section, error) {
 	}
 
 	var sections []Section
-	for i := 0; i < len(tokens); {
-		if tokens[i].brace != 0 || i+1 >= len(tokens) || tokens[i+1].brace != '{' {
-			return nil, fmt.Errorf("expected a section name and {, got %q", tokens[i].text)
+	for i := 0; i+1 < len(tokens); {
+		if tokens[i].brace != 0 || tokens[i+1].brace != '{' {
+			i += 2
+			continue
 		}
 		section := Section{Name: tokens[i].text}
 		for i += 2; ; i += 2 {
@@ -96,8 +99,9 @@ func (phy *Phy) Sections() ([]Section, error) {
 				i++
 				break
 			}
-			if tokens[i].brace != 0 || i+1 >= len(tokens) || tokens[i+1].brace != 0 {
-				return nil, fmt.Errorf("section %q: expected a key and value, got %q", section.Name, tokens[i].text)
+			// Like the engine, only } ends a section; a { inside one is read as an ordinary word
+			if i+1 >= len(tokens) || tokens[i+1].brace == '}' {
+				return nil, fmt.Errorf("section %q: key %q has no value", section.Name, tokens[i].text)
 			}
 			section.KeyValues = append(section.KeyValues, KeyValue{Key: tokens[i].text, Value: tokens[i+1].text})
 		}

@@ -186,6 +186,12 @@ func (reader *Reader) Read(stream io.Reader) (*Mdl, error) {
 	if err := readTransitions(buf, header, out); err != nil {
 		return nil, err
 	}
+	if err := readFlexes(buf, header, out); err != nil {
+		return nil, err
+	}
+	if out.BoneFlexDrivers, err = readBoneFlexDrivers(buf, header, out.Header2); err != nil {
+		return nil, err
+	}
 	out.buf = buf
 
 	return out, nil
@@ -277,6 +283,7 @@ func (reader *Reader) readBodyParts(buf []byte, header *Studiohdr) ([]BodyPartDa
 
 	bodyPartSize := int64(binary.Size(BodyPart{}))
 	modelSize := int64(binary.Size(Model{}))
+	meshSize := int64(binary.Size(Mesh{}))
 
 	bodyParts := make([]BodyPartData, len(bodyPartHeaders))
 	for i, bodyPart := range bodyPartHeaders {
@@ -296,10 +303,25 @@ func (reader *Reader) readBodyParts(buf []byte, header *Studiohdr) ([]BodyPartDa
 				return nil, fmt.Errorf("failed to parse meshes for model %d in body part %d: %w", j, i, err)
 			}
 
+			modelPos := modelStart + int64(j)*modelSize
+			eyeballs, eyeballNames, err := readEyeballs(buf, modelPos, &model)
+			if err != nil {
+				return nil, fmt.Errorf("model %d in body part %d: %w", j, i, err)
+			}
+			flexes := make([][]FlexData, len(meshes))
+			for k := range meshes {
+				if flexes[k], err = readMeshFlexes(buf, header, meshStart+int64(k)*meshSize, &meshes[k]); err != nil {
+					return nil, fmt.Errorf("mesh %d of model %d in body part %d: %w", k, j, i, err)
+				}
+			}
+
 			modelData[j] = ModelData{
-				Header: model,
-				Name:   fixedString(model.Name[:]),
-				Meshes: meshes,
+				Header:       model,
+				Name:         fixedString(model.Name[:]),
+				Meshes:       meshes,
+				Flexes:       flexes,
+				Eyeballs:     eyeballs,
+				EyeballNames: eyeballNames,
 			}
 		}
 

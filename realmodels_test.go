@@ -28,7 +28,7 @@ func TestRealModels(t *testing.T) {
 		t.Skip("set STUDIOMODEL_TESTDATA to a folder of models to run")
 	}
 
-	var windings windingStats
+	r := rates{}
 	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -38,7 +38,7 @@ func TestRealModels(t *testing.T) {
 		}
 		name, _ := filepath.Rel(dir, path)
 		t.Run(name, func(t *testing.T) {
-			checkRealModel(t, strings.TrimSuffix(path, filepath.Ext(path)), &windings)
+			checkRealModel(t, dir, strings.TrimSuffix(path, filepath.Ext(path)), r)
 		})
 		return nil
 	})
@@ -46,18 +46,35 @@ func TestRealModels(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Some assets ship normals that disagree with their faces, but if many LODs do, vertices are being mismatched
-	if windings.lods > 0 && float64(windings.mismatched) > 0.01*float64(windings.lods) {
-		t.Errorf("%d of %d LODs have triangles that disagree with their vertex normals", windings.mismatched, windings.lods)
+	for name, c := range r {
+		if c.failed > 1 && c.failed*50 > c.checked {
+			t.Errorf("%s: %d of %d failed", name, c.failed, c.checked)
+		}
 	}
 }
 
-// windingStats counts LODs whose triangles disagree with their vertex normals
-type windingStats struct {
-	lods, mismatched int
+// rates counts how often each check that real assets occasionally fail does fail. Valve's own models have a few
+// mirrored, double-sided or dangling parts; a parser bug fails such a check far more often than the 2% allowed.
+type rates map[string]*rate
+
+type rate struct {
+	checked, failed int
 }
 
-func checkRealModel(t *testing.T, base string, windings *windingStats) {
+func (r rates) record(t *testing.T, check string, ok bool, format string, args ...any) {
+	c := r[check]
+	if c == nil {
+		c = &rate{}
+		r[check] = c
+	}
+	c.checked++
+	if !ok {
+		c.failed++
+		t.Logf(check+": "+format, args...)
+	}
+}
+
+func checkRealModel(t *testing.T, root string, base string, r rates) {
 	buf, err := os.ReadFile(base + ".mdl")
 	if err != nil {
 		t.Fatal(err)
@@ -85,7 +102,9 @@ func checkRealModel(t *testing.T, base string, windings *windingStats) {
 	}
 
 	checkRigging(t, m)
-	checkAnimations(t, m)
+	loadAnimBlocks(t, root, base, m)
+	checkAnimations(t, m, r)
+	checkFaces(t, m)
 
 	model := studiomodel.NewStudioModel(base)
 	model.AddMdl(m)
@@ -126,13 +145,28 @@ func checkRealModel(t *testing.T, base string, windings *windingStats) {
 	}
 
 	if model.Vvd != nil && model.Vtx != nil {
-		checkLODs(t, model, windings)
+		checkLODs(t, model, r)
+	}
+}
+
+// loadAnimBlocks loads the .ani file a model keeps animations in, from the game folder the model is in or beside it
+func loadAnimBlocks(t *testing.T, root string, base string, m *mdl.Mdl) {
+	if m.AnimBlockName == "" {
+		return
+	}
+	name := filepath.FromSlash(strings.ReplaceAll(m.AnimBlockName, "\\", "/"))
+	data, err := readFirst("", filepath.Join(root, name), filepath.Join(filepath.Dir(base), filepath.Base(name)))
+	if err != nil {
+		return
+	}
+	if err := m.LoadAnimBlocks(bytes.NewReader(data)); err != nil {
+		t.Errorf("%s: %v", m.AnimBlockName, err)
 	}
 }
 
 // checkLODs builds every LOD with every skin. Triangles that use the wrong vertices face random ways, whereas Source
-// winds triangles clockwise against their vertex normals.
-func checkLODs(t *testing.T, model *studiomodel.StudioModel, windings *windingStats) {
+// winds triangles consistently: clockwise against their vertex normals, or the other way round for mirrored models.
+func checkLODs(t *testing.T, model *studiomodel.StudioModel, r rates) {
 	for lod := range int(model.Vtx.Header.NumLODs) {
 		for skin := range len(model.Mdl.SkinFamilies) {
 			geometry, err := model.BuildLOD(lod, skin)
@@ -161,16 +195,13 @@ func checkLODs(t *testing.T, model *studiomodel.StudioModel, windings *windingSt
 			if total == 0 {
 				continue
 			}
-			windings.lods++
-			if float64(against) < 0.8*float64(total) {
-				windings.mismatched++
-				// Fixups are where vertex order most easily goes wrong, so models with them must not mismatch
-				if len(model.Vvd.Fixups) > 0 {
-					t.Errorf("LOD %d: only %d of %d triangles wind against their vertex normals", lod, against, total)
-				} else {
-					t.Logf("LOD %d: only %d of %d triangles wind against their vertex normals", lod, against, total)
-				}
+			// Fixups are where vertex order most easily goes wrong, so models with them are counted apart
+			check := "triangle winding"
+			if len(model.Vvd.Fixups) > 0 {
+				check = "triangle winding with fixups"
 			}
+			consistent := against*5 >= total*4 || against*5 <= total
+			r.record(t, check, consistent, "LOD %d: %d of %d triangles wind against their vertex normals", lod, against, total)
 		}
 	}
 }
@@ -223,12 +254,12 @@ func checkRigging(t *testing.T, m *mdl.Mdl) {
 	}
 }
 
-// checkAnimations decodes every frame of every animation stored in the mdl, and checks that sequences refer to
-// animations, sequences and bones that exist
-func checkAnimations(t *testing.T, m *mdl.Mdl) {
+// checkAnimations decodes every frame of every animation, unless it is in an .ani file that isn't there, and checks
+// that sequences refer to animations, sequences and bones that exist
+func checkAnimations(t *testing.T, m *mdl.Mdl, r rates) {
 	for i, desc := range m.AnimDescs {
-		if desc.AnimBlock > 0 {
-			continue // in an .ani file
+		if _, err := m.AnimationFrame(i, 0); err != nil && strings.Contains(err.Error(), "not loaded") {
+			continue
 		}
 		for frame := range int(desc.NumFrames) {
 			if _, err := m.AnimationFrame(i, frame); err != nil {
@@ -248,14 +279,10 @@ func checkAnimations(t *testing.T, m *mdl.Mdl) {
 	for i, seq := range m.Sequences {
 		name := m.SequenceLabels[i]
 		for _, anim := range seq.Animations {
-			if anim < 0 || (local && int(anim) >= len(m.AnimDescs)) {
-				t.Errorf("sequence %s: animation %d of %d", name, anim, len(m.AnimDescs))
-			}
+			r.record(t, "sequence animations", anim >= 0 && (!local || int(anim) < len(m.AnimDescs)), "sequence %s: animation %d of %d", name, anim, len(m.AnimDescs))
 		}
 		for _, layer := range seq.AutoLayers {
-			if layer.Sequence < 0 || (local && int(layer.Sequence) >= len(m.SequenceDescs)) {
-				t.Errorf("sequence %s: layer of sequence %d of %d", name, layer.Sequence, len(m.SequenceDescs))
-			}
+			r.record(t, "sequence layers", layer.Sequence >= 0 && (!local || int(layer.Sequence) < len(m.SequenceDescs)), "sequence %s: layer of sequence %d of %d", name, layer.Sequence, len(m.SequenceDescs))
 		}
 		for _, event := range seq.Events {
 			if event.Cycle < 0 || event.Cycle > 1 {
@@ -265,6 +292,65 @@ func checkAnimations(t *testing.T, m *mdl.Mdl) {
 		if seq.BoneWeights != nil && len(seq.BoneWeights) != len(m.Bones) {
 			t.Errorf("sequence %s: %d bone weights for %d bones", name, len(seq.BoneWeights), len(m.Bones))
 		}
+	}
+}
+
+// checkFaces runs the flex rules with every controller at its minimum and maximum, and checks that flexes, eyeballs
+// and mouths refer to flex descriptions, vertices and bones that exist
+func checkFaces(t *testing.T, m *mdl.Mdl) {
+	for _, extreme := range []string{"minimum", "maximum"} {
+		values := make([]float32, len(m.FlexControllers))
+		for i, c := range m.FlexControllers {
+			values[i] = c.Min
+			if extreme == "maximum" {
+				values[i] = c.Max
+			}
+		}
+		weights, err := m.FlexWeights(values)
+		if err != nil {
+			if !strings.Contains(err.Error(), "not supported") {
+				t.Errorf("flex weights at controller %s: %v", extreme, err)
+			}
+			break
+		}
+		for i, w := range weights {
+			if math.IsNaN(float64(w)) || math.IsInf(float64(w), 0) {
+				t.Errorf("flex weights at controller %s: %s is %v", extreme, m.FlexDescs[i], w)
+			}
+		}
+	}
+
+	flexDesc := func(what string, i int32) {
+		if i < -1 || int(i) >= len(m.FlexDescs) {
+			t.Errorf("%s: flex description %d of %d", what, i, len(m.FlexDescs))
+		}
+	}
+	for _, bodyPart := range m.BodyParts {
+		for _, model := range bodyPart.Models {
+			for k, flexes := range model.Flexes {
+				for _, flex := range flexes {
+					flexDesc("mesh flex", flex.Header.FlexDesc)
+					for _, v := range flex.VertAnims {
+						if int32(v.Index) >= model.Meshes[k].NumVertices || math.IsNaN(float64(v.Delta.Len())) || math.IsInf(float64(v.Delta.Len()), 0) {
+							t.Errorf("mesh flex: vertex %d of %d moves by %v", v.Index, model.Meshes[k].NumVertices, v.Delta)
+						}
+					}
+				}
+			}
+			for i, eyeball := range model.Eyeballs {
+				if eyeball.Bone < 0 || int(eyeball.Bone) >= len(m.Bones) || eyeball.Radius <= 0 {
+					t.Errorf("eyeball %d: bone %d of %d, radius %v", i, eyeball.Bone, len(m.Bones), eyeball.Radius)
+				}
+				flexDesc("eyeball upper lid", eyeball.UpperLidFlexDesc)
+				flexDesc("eyeball lower lid", eyeball.LowerLidFlexDesc)
+			}
+		}
+	}
+	for i, mouth := range m.Mouths {
+		if mouth.Bone < 0 || int(mouth.Bone) >= len(m.Bones) {
+			t.Errorf("mouth %d: bone %d of %d", i, mouth.Bone, len(m.Bones))
+		}
+		flexDesc("mouth", mouth.FlexDesc)
 	}
 }
 

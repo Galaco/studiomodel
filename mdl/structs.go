@@ -344,9 +344,9 @@ type Mesh struct {
 	// FlexIndex - offset to flex data
 	FlexIndex int32
 
-	// MaterialType - material flags
+	// MaterialType - 1 for an eyeball, 0 otherwise
 	MaterialType int32
-	// MaterialParam - material parameter
+	// MaterialParam - for an eyeball, the index of its model's eyeball
 	MaterialParam int32
 
 	// MeshID - unique mesh identifier

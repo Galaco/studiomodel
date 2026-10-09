@@ -229,6 +229,12 @@ type ModelData struct {
 	// Name
 	Name   string
 	Meshes []Mesh
+	// Flexes holds the flexes of each of Meshes
+	Flexes [][]FlexData
+	// Eyeballs
+	Eyeballs []Eyeball
+	// EyeballNames are the names of Eyeballs
+	EyeballNames []string
 }
 
 // Mdl represents the complete parsed data in an Mdl file.
@@ -319,6 +325,23 @@ type Mdl struct {
 	// Transitions is the transition graph's table: Transitions[from][to] is the next node to pass through on the way
 	// between two nodes. Nodes in the table's entries count from 1.
 	Transitions [][]uint8
+
+	// FlexDescs are the names of the flex descriptions, which mesh flexes follow. FlexWeights computes their weights.
+	FlexDescs []string
+	// FlexControllers are the inputs to the flex rules
+	FlexControllers []FlexController
+	// FlexControllerNames are the names of FlexControllers
+	FlexControllerNames []string
+	// FlexControllerTypes are the type names of FlexControllers
+	FlexControllerTypes []string
+	// FlexRules compute flex description weights from flex controllers; see FlexWeights
+	FlexRules []FlexRule
+	// FlexControllerUI
+	FlexControllerUI []FlexControllerUI
+	// Mouths
+	Mouths []Mouth
+	// BoneFlexDrivers drive flex controllers from bone positions
+	BoneFlexDrivers []BoneFlexDriver
 
 	// buf is the mdl file, and ani the .ani file, which AnimationFrame decodes from
 	buf []byte

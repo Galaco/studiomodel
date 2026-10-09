@@ -107,7 +107,6 @@ func TestKeyValuesRejectMalformedText(t *testing.T) {
 	for name, text := range map[string]string{
 		"unclosed section":      "solid {\n\"index\" \"0\"\n",
 		"unterminated string":   "solid {\n\"index\" \"0\n}",
-		"missing brace":         "solid\n\"index\" \"0\"\n}",
 		"key without value":     "solid {\n\"index\"\n}",
 		"bad number":            "solid {\n\"index\" \"zero\"\n}",
 		"bad collision pair":    "collisionrules {\n\"collisionpair\" \"0\"\n}",
@@ -122,6 +121,35 @@ func TestKeyValuesRejectMalformedText(t *testing.T) {
 				t.Error("expected an error")
 			}
 		})
+	}
+}
+
+// Like the engine, words that don't start a section are skipped, as in some of Valve's own files
+func TestSectionsSkipStrayWords(t *testing.T) {
+	text := `solid {
+"index" "0"
+}
+break {"model" "chunk01" "fadetime" "20"  }
+break break {"model" "chunk09" "fadetime" "20"  }
+break {"model" "chunk10" "break" {"model" "chunk11" }
+editparams {
+"totalmass" "25"
+}
+`
+	sections, err := (&Phy{Text: text}).Sections()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, section := range sections {
+		names = append(names, section.Name)
+	}
+	if want := []string{"solid", "break", "break", "editparams"}; !slices.Equal(names, want) {
+		t.Errorf("got sections %q, want %q", names, want)
+	}
+	// An unclosed section takes in the one after it, including its {
+	if value, _ := sections[2].Value("break"); value != "{" {
+		t.Errorf("unclosed break section: got %+v", sections[2])
 	}
 }
 

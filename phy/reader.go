@@ -12,7 +12,7 @@ import (
 
 const (
 	// VPhysicsID is the expected CompactSurfaceHeader.VPhysicsID ("VPHY" in little-endian).
-	// Older files without it store the compact surface directly, which is not supported yet.
+	// Older files without it store the compact surface directly after the solid's size.
 	VPhysicsID = 0x59485056
 	// ModelTypeCompactSurface is the only supported CompactSurfaceHeader.ModelType (IVP compact surface, not MOPP)
 	ModelTypeCompactSurface = 0
@@ -70,13 +70,6 @@ func (reader *Reader) readSolid(buf []byte, offset int64) (Solid, int64, error) 
 	if err != nil {
 		return solid, 0, err
 	}
-	if solid.Header.VPhysicsID != VPhysicsID {
-		return solid, 0, fmt.Errorf("unsupported collision data: VPhysicsID is 0x%08X, expected 0x%08X", solid.Header.VPhysicsID, VPhysicsID)
-	}
-	if solid.Header.ModelType != ModelTypeCompactSurface {
-		return solid, 0, fmt.Errorf("unsupported collision model type: %d", solid.Header.ModelType)
-	}
-
 	// Size excludes the size field itself. Confine every other read to this solid.
 	end := offset + 4 + int64(solid.Header.Size)
 	if err := internal.CheckRange(buf, offset, end-offset, "solid"); err != nil {
@@ -85,6 +78,14 @@ func (reader *Reader) readSolid(buf []byte, offset int64) (Solid, int64, error) 
 	data := buf[:end]
 
 	surfaceStart := offset + int64(binary.Size(CompactSurfaceHeader{}))
+	switch {
+	case solid.Header.VPhysicsID != VPhysicsID:
+		// Older files have no compact surface header: the compact surface follows the size
+		solid.Header = CompactSurfaceHeader{Size: solid.Header.Size}
+		surfaceStart = offset + 4
+	case solid.Header.ModelType != ModelTypeCompactSurface:
+		return solid, 0, fmt.Errorf("unsupported collision model type: %d", solid.Header.ModelType)
+	}
 	solid.Surface, err = internal.ReadStruct[CompactSurface](data, surfaceStart, "compact surface")
 	if err != nil {
 		return solid, 0, err

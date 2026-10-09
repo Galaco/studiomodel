@@ -33,9 +33,17 @@ func buildPhy() []byte {
 }
 
 func writeSolid(b *testutil.Builder, ledges [][][3]int16, numVertices int) {
+	writeSolidWithHeader(b, ledges, numVertices, true)
+}
+
+// writeSolidWithHeader writes a solid, with the compact surface header that newer files have or without it
+func writeSolidWithHeader(b *testutil.Builder, ledges [][][3]int16, numVertices int, header bool) {
 	start := b.Pos()
-	// compact surface header: size (set below), vphysicsID, version, modelType, surfaceSize, dragAxisAreas, axisMapSize
-	b.I32(0).U8('V', 'P', 'H', 'Y').I16(0x100, ModelTypeCompactSurface).I32(0).F32(1, 1, 1).I32(0)
+	b.I32(0) // size, set below
+	if header {
+		// compact surface header: vphysicsID, version, modelType, surfaceSize, dragAxisAreas, axisMapSize
+		b.U8('V', 'P', 'H', 'Y').I16(0x100, ModelTypeCompactSurface).I32(0).F32(1, 1, 1).I32(0)
+	}
 	// compact surface: massCenter, rotationInertia, upperLimitRadius, max deviation + byte size, ledge tree offset, dummy
 	b.F32(0, 0, 0, 1, 1, 1, 1).I32(0, 0).Zero(12)
 
@@ -108,6 +116,22 @@ func TestRead(t *testing.T) {
 	}
 }
 
+// Older files have no compact surface header
+func TestReadLegacySolid(t *testing.T) {
+	b := &testutil.Builder{}
+	b.I32(16, 0, 1, 1234)
+	writeSolidWithHeader(b, [][][3]int16{{{0, 1, 2}}, {{0, 2, 3}}}, 4, false)
+	b.Str(testText)
+
+	p, err := ReadFromStream(bytes.NewReader(b.Bytes))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Solids) != 1 || len(p.Solids[0].Ledges) != 2 || len(p.Solids[0].Vertices) != 4 || p.Text != testText {
+		t.Errorf("got %+v", p)
+	}
+}
+
 func TestReadRejectsCorruptData(t *testing.T) {
 	for name, corrupt := range map[string]func(b *testutil.Builder){
 		"huge solid count":      func(b *testutil.Builder) { b.SetI32(solidCountAt, math.MaxInt32) },
@@ -116,7 +140,6 @@ func TestReadRejectsCorruptData(t *testing.T) {
 		"huge solid size":       func(b *testutil.Builder) { b.SetI32(firstSolidAt, math.MaxInt32) },
 		"zero point offset":     func(b *testutil.Builder) { b.SetI32(firstPointOffsetAt, 0) },
 		"overlong ledge":        func(b *testutil.Builder) { b.Bytes[firstNumTrisAt] = 100 },
-		"missing VPHY":          func(b *testutil.Builder) { b.Bytes[firstSolidAt+4] = 0 },
 		"unsupported MOPP data": func(b *testutil.Builder) { b.Bytes[modelTypeAt] = 1 },
 	} {
 		t.Run(name, func(t *testing.T) {

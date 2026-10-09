@@ -27,7 +27,7 @@ type Header struct {
 
 // Solid is one collision solid: one or more convex pieces (ledges) that share a vertex array
 type Solid struct {
-	// Header
+	// Header - only Size is set for older files, which have no compact surface header
 	Header CompactSurfaceHeader
 	// Surface
 	Surface CompactSurface
