@@ -394,7 +394,17 @@ func TestReadTruncated(t *testing.T) {
 
 func FuzzRead(f *testing.F) {
 	f.Add(buildMdl().Bytes)
+	animated, _ := buildAnimatedMdl()
+	f.Add(animated)
 	f.Fuzz(func(t *testing.T, data []byte) {
-		_, _ = ReadFromStream(bytes.NewReader(data))
+		m, err := ReadFromStream(bytes.NewReader(data))
+		if err != nil {
+			return
+		}
+		for i, desc := range m.AnimDescs {
+			for frame := range min(int(desc.NumFrames), 16) {
+				_, _ = m.AnimationFrame(i, frame)
+			}
+		}
 	})
 }

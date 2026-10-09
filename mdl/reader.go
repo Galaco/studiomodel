@@ -177,6 +177,16 @@ func (reader *Reader) Read(stream io.Reader) (*Mdl, error) {
 	if err := readRigging(buf, header, out); err != nil {
 		return nil, err
 	}
+	if err := readAnimationDetails(buf, header, out); err != nil {
+		return nil, err
+	}
+	if err := readSequences(buf, header, out); err != nil {
+		return nil, err
+	}
+	if err := readTransitions(buf, header, out); err != nil {
+		return nil, err
+	}
+	out.buf = buf
 
 	return out, nil
 }

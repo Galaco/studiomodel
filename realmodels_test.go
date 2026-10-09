@@ -85,6 +85,7 @@ func checkRealModel(t *testing.T, base string, windings *windingStats) {
 	}
 
 	checkRigging(t, m)
+	checkAnimations(t, m)
 
 	model := studiomodel.NewStudioModel(base)
 	model.AddMdl(m)
@@ -218,6 +219,51 @@ func checkRigging(t *testing.T, m *mdl.Mdl) {
 	for _, proc := range m.ProceduralBones {
 		if proc.Jiggle != nil && (proc.Jiggle.Length <= 0 || math.IsInf(float64(proc.Jiggle.Length), 0)) {
 			t.Errorf("jiggle bone %s: length %v", m.BoneNames[proc.Bone], proc.Jiggle.Length)
+		}
+	}
+}
+
+// checkAnimations decodes every frame of every animation stored in the mdl, and checks that sequences refer to
+// animations, sequences and bones that exist
+func checkAnimations(t *testing.T, m *mdl.Mdl) {
+	for i, desc := range m.AnimDescs {
+		if desc.AnimBlock > 0 {
+			continue // in an .ani file
+		}
+		for frame := range int(desc.NumFrames) {
+			if _, err := m.AnimationFrame(i, frame); err != nil {
+				t.Errorf("%s: %v", m.AnimDescNames[i], err)
+				break
+			}
+		}
+		for _, movement := range m.AnimMovements[i] {
+			if movement.EndFrame < 0 || movement.EndFrame > desc.NumFrames {
+				t.Errorf("%s: movement ends at frame %d of %d", m.AnimDescNames[i], movement.EndFrame, desc.NumFrames)
+			}
+		}
+	}
+
+	// Included models add their animations and sequences after this model's, so only models without them are checked
+	local := len(m.IncludeModels) == 0
+	for i, seq := range m.Sequences {
+		name := m.SequenceLabels[i]
+		for _, anim := range seq.Animations {
+			if anim < 0 || (local && int(anim) >= len(m.AnimDescs)) {
+				t.Errorf("sequence %s: animation %d of %d", name, anim, len(m.AnimDescs))
+			}
+		}
+		for _, layer := range seq.AutoLayers {
+			if layer.Sequence < 0 || (local && int(layer.Sequence) >= len(m.SequenceDescs)) {
+				t.Errorf("sequence %s: layer of sequence %d of %d", name, layer.Sequence, len(m.SequenceDescs))
+			}
+		}
+		for _, event := range seq.Events {
+			if event.Cycle < 0 || event.Cycle > 1 {
+				t.Errorf("sequence %s: event at cycle %v", name, event.Cycle)
+			}
+		}
+		if seq.BoneWeights != nil && len(seq.BoneWeights) != len(m.Bones) {
+			t.Errorf("sequence %s: %d bone weights for %d bones", name, len(seq.BoneWeights), len(m.Bones))
 		}
 	}
 }

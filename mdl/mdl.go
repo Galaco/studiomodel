@@ -301,6 +301,28 @@ type Mdl struct {
 	SrcBoneTransforms []SrcBoneTransform
 	// SrcBoneTransformNames are the bone names of SrcBoneTransforms
 	SrcBoneTransformNames []string
+
+	// AnimMovements holds the root motion of each of AnimDescs
+	AnimMovements [][]Movement
+	// AnimIKRules holds the IK rules of each of AnimDescs, when they are stored in the mdl
+	AnimIKRules [][]IKRule
+	// AnimIKRuleAttachments are the attachment names of AnimIKRules
+	AnimIKRuleAttachments [][]string
+	// AnimBlockName is the .ani file holding animation data that isn't in the mdl; see LoadAnimBlocks
+	AnimBlockName string
+	// AnimBlocks locate the blocks of the .ani file. Block 0 is unused: it stands for the mdl itself.
+	AnimBlocks []AnimBlock
+	// Sequences holds the details of each of SequenceDescs
+	Sequences []SequenceData
+	// NodeNames are the names of the animation transition graph's nodes
+	NodeNames []string
+	// Transitions is the transition graph's table: Transitions[from][to] is the next node to pass through on the way
+	// between two nodes. Nodes in the table's entries count from 1.
+	Transitions [][]uint8
+
+	// buf is the mdl file, and ani the .ani file, which AnimationFrame decodes from
+	buf []byte
+	ani []byte
 }
 
 // GetMaterialIndexForMesh returns the material of a specific mesh: its slot in the skin families, not a texture.

@@ -247,7 +247,12 @@ type SequenceDesc struct {
 	// CyclePoseIndex
 	CyclePoseIndex int32
 
-	_ [7]int32
+	// ActivityModifierIndex
+	ActivityModifierIndex int32
+	// NumActivityModifiers
+	NumActivityModifiers int32
+
+	_ [5]int32
 }
 
 // Texture

@@ -23,8 +23,10 @@ replacements. The larger strip headers used by MDL v49 are detected automaticall
 `vtx.ReadFromStreamWithMDLVersion`
 * MDL reader is usable, currently incomplete: it reads the header and secondary header, bones and their procedural
 rules (axis and quaternion interpolation, aim-at, jiggle), bone controllers, hitboxes, attachments, pose parameters,
-IK chains and locks, included models, animation and sequence descriptions, textures, skins and the body part / model /
-mesh tree, with their names. Animation data, sequence details, flexes and eyes are not read yet
+IK chains and locks, included models, textures, skins and the body part / model / mesh tree, with their names. It
+decodes animation frames into bone poses with `AnimationFrame` (load an .ani file first with `LoadAnimBlocks` for
+animations stored there), and reads root motion, IK rules, sequence details (events, blend grids, layers, bone
+weights) and the transition graph. Flexes and eyes are not read yet
 * PHY reader reads every solid and its convex pieces, and parses the key-values text that follows them into solid
 descriptions, ragdoll constraints and collision pairs. `phy.ToSource` converts vertices from IVP to Source space
 * `StudioModel.BuildLOD` combines the mdl, vvd and vtx into triangle lists per mesh for a LOD and skin, and

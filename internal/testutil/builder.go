@@ -72,6 +72,11 @@ func (b *Builder) SetI32(offset int, v int32) {
 	binary.LittleEndian.PutUint32(b.Bytes[offset:], uint32(v))
 }
 
+// SetI16 overwrites the int16 at offset
+func (b *Builder) SetI16(offset int, v int16) {
+	binary.LittleEndian.PutUint16(b.Bytes[offset:], uint16(v))
+}
+
 // SetF32 overwrites the float32 at offset
 func (b *Builder) SetF32(offset int, v float32) {
 	binary.LittleEndian.PutUint32(b.Bytes[offset:], math.Float32bits(v))
